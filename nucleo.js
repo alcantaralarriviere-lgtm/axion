@@ -65,13 +65,25 @@ var Nucleo = (function () {
   }
 
   // ------------------------------------------------------------ sesión
-  function ingresar(email, codigo) {
-    var anterior = S.perfil && S.perfil.Email;
-    if (anterior && anterior !== email.trim().toLowerCase() && S.outbox.length)
-      return Promise.reject(new Error('Este celular tiene ' + S.outbox.length + ' cambios sin enviar de ' + anterior + '. Ingrese con esa cuenta y sincronice primero.'));
-    return api('login', { email: email, codigo: codigo, dispositivo: navigator.userAgent }).then(function (r) {
-      if (anterior && anterior !== r.perfil.Email) { var tok = r.token; S = vacio(); S.token = tok; }
+  /** Ingreso con celular o correo. Si debe crear su contraseña, no descarga datos hasta hacerlo. */
+  function ingresar(usuario, codigo) {
+    var anterior = S.perfil && S.perfil.UsuarioID;
+    var nombreAnt = S.perfil && S.perfil.Nombre;
+    return api('login', { usuario: usuario, codigo: codigo, dispositivo: navigator.userAgent }).then(function (r) {
+      if (anterior && anterior !== r.perfil.UsuarioID) {
+        if (S.outbox.length) {
+          throw new Error('Este celular tiene ' + S.outbox.length + ' cambios sin enviar de ' + nombreAnt + '. Ingrese con esa cuenta y sincronice primero.');
+        }
+        S = vacio();
+      }
       S.token = r.token;
+      S.perfil = r.perfil;
+      if (r.perfil.DebeCambiarClave) { avisar(); return { debeCambiar: true }; }
+      return descargar(true);
+    });
+  }
+  function cambiarClave(actual, nueva) {
+    return api('cambiarClave', { actual: actual, nueva: nueva }).then(function (r) {
       S.perfil = r.perfil;
       return descargar(true);
     });
@@ -242,7 +254,7 @@ var Nucleo = (function () {
   }
 
   function sincronizar() {
-    if (sincronizando || !S || !S.token) return Promise.resolve();
+    if (sincronizando || !S || !S.token || (S.perfil && S.perfil.DebeCambiarClave)) return Promise.resolve();
     if (!navigator.onLine) { avisar(); return Promise.resolve(); }
     sincronizando = true;
     avisar();
@@ -297,7 +309,7 @@ var Nucleo = (function () {
   setInterval(function () { if (S && S.token && navigator.onLine) sincronizar(); }, 90000);
 
   return {
-    iniciar: iniciar, alCambiar: alCambiar, estado: function () { return S; }, ingresar: ingresar, salir: salir,
+    iniciar: iniciar, alCambiar: alCambiar, estado: function () { return S; }, ingresar: ingresar, salir: salir, cambiarClave: cambiarClave,
     filas: filas, fila: fila, hijos: hijos, pendientesDe: pendientesDe, estadoVisible: estadoVisible,
     nuevoID: nuevoID, guardar: guardar, eliminar: eliminar, accion: accion, foto: foto, leerFoto: leerFoto,
     guardarFoto: guardarFoto, sincronizar: sincronizar, api: api, ocupado: function () { return sincronizando; }

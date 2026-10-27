@@ -28,6 +28,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--acento); }
 :focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; border-radius: 6px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.selector-foto { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
 .num { font-variant-numeric: tabular-nums; }
 
 /* ---------- estructura */
@@ -168,7 +169,9 @@ h3 { font-size: 16px; margin: 0; font-weight: 600; }
 .foto .pie { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 6px; font-size: 11px;
   background: linear-gradient(0deg, rgba(0, 0, 0, .85), transparent); color: var(--texto); text-align: left; }
 .foto-req { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radio-s); background: var(--fondo-2); border: 1px solid var(--borde); }
-.foto-req .crece { flex: 1; }
+.foto-req { flex-wrap: wrap; }
+.foto-req .crece { flex: 1 1 60%; min-width: 160px; }
+.foto-req .btn { flex: 1 1 auto; }
 .foto-req.ok { border-color: rgba(52, 199, 89, .4); }
 
 /* ---------- diálogo y toast */

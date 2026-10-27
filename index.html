@@ -14,7 +14,9 @@
 <body>
   <div id="app" aria-live="polite"><main class="ingreso"><div class="logo">AXION</div><p class="lema">Cargando…</p></main></div>
   <dialog id="dlg" aria-modal="true"></dialog>
-  <input id="camara" type="file" accept="image/*" capture="environment" hidden>
+  <!-- No usar "hidden"/display:none: algunos navegadores (Safari) no abren la cámara desde un campo oculto así. -->
+  <input id="camara" class="selector-foto" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+  <input id="galeria" class="selector-foto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
   <script src="config.js"></script>
   <script src="reglas.js"></script>
   <script src="nucleo.js"></script>

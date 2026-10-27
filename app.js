@@ -109,8 +109,10 @@
     app.innerHTML = '<main class="ingreso"><div><div class="logo">AXION</div><p class="lema">Partes diarios y control de maquinaria</p></div>' +
       '<form class="tarjeta" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
       '<h2>Ingresar</h2>' +
-      '<label class="campo"><span>Correo</span><input name="email" type="email" autocomplete="username" inputmode="email" required value="' + esc((S().perfil || {}).Email || '') + '"></label>' +
-      '<label class="campo"><span>Código de acceso</span><input name="codigo" type="password" autocomplete="current-password" required placeholder="XXXX-XXXX"><span class="ayuda">Se lo entrega el administrador. Es personal.</span></label>' +
+      '<label class="campo"><span>Número de celular</span><input name="email" type="text" autocomplete="username" inputmode="tel" required placeholder="9XX XXX XXX" value="' + esc(ultimoUsuario()) + '">' +
+      '<span class="ayuda">El administrador ingresa con su correo.</span></label>' +
+      '<label class="campo"><span>Contraseña</span><input name="codigo" type="password" autocomplete="current-password" required>' +
+      '<span class="ayuda">La primera vez use la contraseña que le dio el administrador; luego creará la suya.</span></label>' +
       (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
       '<button class="btn primario ancho" type="submit">Ingresar</button>' +
       '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form></main>';
@@ -119,10 +121,47 @@
       var f = new FormData(e.target);
       var b = e.target.querySelector('button');
       b.disabled = true; b.textContent = 'Ingresando…';
-      N.ingresar(String(f.get('email')), String(f.get('codigo'))).then(function () {
+      var usuario = String(f.get('email')).trim();
+      try { localStorage.setItem('axion_usuario', usuario); } catch (x) { /* sin almacenamiento */ }
+      claveTemporal = String(f.get('codigo'));
+      N.ingresar(usuario, claveTemporal).then(function (r) {
+        if (!(r && r.debeCambiar)) { claveTemporal = ''; location.hash = rol() === 'OPERADOR' ? '#/inicio' : '#/revisar'; }
+        render();
+      }, function (err) { claveTemporal = ''; vIngreso(err.message); });
+    };
+  }
+  function ultimoUsuario() {
+    try { return localStorage.getItem('axion_usuario') || ''; } catch (x) { return ''; }
+  }
+
+  var claveTemporal = '';
+  /** Primer ingreso con la contraseña común: debe crear una personal (el servidor no entrega datos antes). */
+  function vCambiarClave(msg) {
+    app.innerHTML = '<main class="ingreso"><div><div class="logo">AXION</div><p class="lema">Bienvenido, ' + esc(String(perfil().Nombre || '').split(' ').slice(-2).join(' ')) + '</p></div>' +
+      '<form class="tarjeta" id="fClave" style="display:grid;gap:14px" novalidate>' +
+      '<h2>Cree su contraseña personal</h2>' +
+      '<p class="sub">Ingresó con la contraseña común. Para que sus partes queden firmados solo por usted, cree una contraseña que nadie más conozca.</p>' +
+      (claveTemporal ? '' : '<label class="campo"><span>Contraseña actual (la común)</span><input name="actual" type="password" autocomplete="current-password" required></label>') +
+      '<label class="campo"><span>Nueva contraseña</span><input name="nueva" type="password" autocomplete="new-password" minlength="6" required><span class="ayuda">Mínimo 6 caracteres. No la comparta.</span></label>' +
+      '<label class="campo"><span>Repita la nueva contraseña</span><input name="repite" type="password" autocomplete="new-password" required></label>' +
+      (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
+      '<button class="btn primario ancho" type="submit">Guardar y entrar</button>' +
+      '<button class="btn fantasma ancho" type="button" data-a="salir">Cancelar</button></form></main>';
+    document.getElementById('fClave').onsubmit = function (e) {
+      e.preventDefault();
+      var f = new FormData(e.target);
+      var actual = claveTemporal || String(f.get('actual') || '');
+      var nueva = String(f.get('nueva') || ''), repite = String(f.get('repite') || '');
+      if (nueva.length < 6) { vCambiarClave('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
+      if (nueva !== repite) { vCambiarClave('Las contraseñas no coinciden.'); return; }
+      var b = e.target.querySelector('button[type=submit]');
+      b.disabled = true; b.textContent = 'Guardando…';
+      N.cambiarClave(actual, nueva).then(function () {
+        claveTemporal = '';
+        toast('Contraseña creada');
         location.hash = rol() === 'OPERADOR' ? '#/inicio' : '#/revisar';
         render();
-      }, function (err) { vIngreso(err.message); });
+      }, function (err) { vCambiarClave(err.message); });
     };
   }
 
@@ -130,18 +169,36 @@
   function vInicio() {
     var pr = R.proponer(Date.now());
     var mis = (cat().ASIGNACIONES || []).filter(function (a) { return a.OperadorID === perfil().OperadorID; });
-    var tarjetas = mis.map(function (a) {
+    var turnosMios = Array.from(new Set(mis.map(function (a) { return a.Turno; })));
+    var tarjetas = turnosMios.map(function (tu) {
+      var fecha = tu === pr.turno ? pr.fecha : (tu === 'DIA' ? hoy() : pr.fecha);
+      var hecho = N.filas('PARTES_DIARIOS', function (x) {
+        return x.OperadorID === perfil().OperadorID && x.FechaTrabajo === fecha && x.Turno === tu && x.Estado !== 'ANULADO';
+      })[0];
+      var delTurno = mis.filter(function (a) { return a.Turno === tu; });
+      if (hecho) {
+        return '<div class="etiqueta-seccion">' + esc(turno(tu).Nombre || tu) + ' · ' + fF(fecha) + '</div>' + tarjetaParte(hecho) +
+          (editable(hecho) ? '<a class="btn primario ancho" href="#/parte/' + hecho.ParteID + '/paso/3">' + ic('edit') + 'Continuar parte</a>' : '');
+      }
+      if (delTurno.length <= 2) return delTurno.map(function (a) { return tarjetaAsignacion(a, fecha, tu === pr.turno); }).join('');
+      return '<div class="etiqueta-seccion">' + esc(turno(tu).Nombre || tu) + ' · elija el equipo que opera hoy (' + delTurno.length + ')</div>' +
+        '<div class="lista">' + delTurno.map(function (a) {
+          var eq = equipo(a.EquipoID);
+          return '<a class="tarjeta tocable fila" style="text-decoration:none;color:inherit;padding:12px 14px" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + fecha + '">' +
+            '<div class="icono-caja acento">' + ic(['VOLQUETE', 'CISTERNA', 'CISTERNA DE COMBUSTIBLE', 'CAMION BARANDA', 'CAMION GRUA'].indexOf(eq.Familia) >= 0 ? 'truck' : 'gauge') + '</div>' +
+            '<div class="crece"><h3>' + esc(eq.CodigoInterno) + '</h3><div class="mini">' + esc(eq.Familia) + ' · ' + esc(eq.Marca + ' ' + eq.Modelo) + '</div></div>' + ic('right') + '</a>';
+        }).join('') + '</div>';
+    }).join('');
+    function tarjetaAsignacion(a, fecha, actual) {
       var eq = equipo(a.EquipoID);
-      var fecha = a.Turno === pr.turno ? pr.fecha : (a.Turno === 'DIA' ? hoy() : pr.fecha);
       var p = N.filas('PARTES_DIARIOS', function (x) { return x.AsignacionID === a.AsignacionID && x.FechaTrabajo === fecha && x.Estado !== 'ANULADO'; })[0];
-      var actual = a.Turno === pr.turno;
       return '<article class="tarjeta' + (actual && !p ? ' destacada' : '') + '"><div class="fila"><div class="icono-caja acento">' + ic(eq.Familia === 'VOLQUETE' ? 'truck' : 'gauge') + '</div>' +
         '<div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3><div class="sub">' + esc(nombreObra(a.ObraID)) + ' · ' + esc(turno(a.Turno).Nombre || a.Turno) + '</div>' +
         '<div class="mini">Fecha de trabajo ' + fF(fecha) + '</div></div>' + (p ? chip(p) : '') + '</div>' +
         '<div class="acciones" style="margin-top:12px">' + (p
           ? '<a class="btn ' + (editable(p) ? 'primario' : '') + ' ancho" href="#/parte/' + p.ParteID + (editable(p) ? '/paso/3' : '') + '">' + (editable(p) ? ic('edit') + 'Continuar parte' : ic('right') + 'Ver parte') + '</a>'
           : '<a class="btn ' + (actual ? 'primario' : '') + ' ancho" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + fecha + '">' + ic('plus') + 'Iniciar parte</a>') + '</div></article>';
-    }).join('');
+    }
     var obs = N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === perfil().OperadorID; });
     var avisos = obs.map(function (p) {
       return '<a class="aviso acento" href="#/parte/' + p.ParteID + '" style="text-decoration:none;color:inherit">' + ic('alert') +
@@ -219,7 +276,8 @@
         : '<button class="btn primario" data-a="enviar" data-id="' + id + '"' + (puedeEnviar(p).ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'Enviar parte') + '</button>') + '</div>';
     marco(p.CodigoParte || 'Nuevo parte', cuerpo, { volver: '#/inicio', pie: pie });
     var f = document.getElementById('fPaso');
-    f.oninput = function (e) { if (e.target.name) vivo(p, paso); };
+    f.oninput = function (e) { if (e.target.name) { vivo(p, paso); respaldarEscrito(); } };
+    f.onchange = respaldarEscrito;
   }
 
   function valoresForm() {
@@ -424,10 +482,16 @@
     var ev = N.hijos('EVIDENCIAS', p.ParteID).filter(function (e) {
       return e.TipoEvidencia === tipo && (!extra.FallaID || e.FallaID === extra.FallaID) && (!extra.AbastecimientoID || e.AbastecimientoID === extra.AbastecimientoID);
     });
-    var hecho = ev.length > 0;
-    return '<div class="foto-req' + (hecho ? ' ok' : '') + '">' + ic(hecho ? 'checkc' : 'camera') + '<span class="crece">' + esc(texto) + (hecho ? ' · ' + ev.length + ' foto(s)' + (ev.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
-      '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto" data-id="' + p.ParteID + '" data-tipo="' + tipo + '"' +
-      (extra.FallaID ? ' data-falla="' + extra.FallaID + '"' : '') + (extra.AbastecimientoID ? ' data-abast="' + extra.AbastecimientoID + '"' : '') + '>' + ic('camera') + (hecho ? 'Otra' : 'Tomar') + '</button></div>';
+    var buenas = ev.filter(function (e) { return !e._error; });
+    var malas = ev.filter(function (e) { return e._error; });
+    var hecho = buenas.length > 0;
+    var datos = ' data-id="' + p.ParteID + '" data-tipo="' + tipo + '"' +
+      (extra.FallaID ? ' data-falla="' + extra.FallaID + '"' : '') + (extra.AbastecimientoID ? ' data-abast="' + extra.AbastecimientoID + '"' : '');
+    return '<div class="foto-req' + (hecho ? ' ok' : '') + '" style="flex-wrap:wrap">' + ic(hecho ? 'checkc' : 'camera') +
+      '<span class="crece">' + esc(texto) + (hecho ? ' · ' + buenas.length + ' foto(s)' + (buenas.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
+      '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto"' + datos + '>' + ic('camera') + (hecho ? 'Otra' : 'Cámara') + '</button>' +
+      '<button type="button" class="btn chico" data-a="foto" data-modo="galeria"' + datos + ' aria-label="Elegir foto de la galería">' + ic('image') + 'Galería</button>' +
+      (malas.length ? '<div class="msg-error" style="width:100%">' + ic('alert') + '<span>Foto rechazada: ' + esc(malas[0]._error) + '</span></div>' : '') + '</div>';
   }
   function galeria(ev) {
     if (!ev.length) return '<div class="vacio">' + ic('image') + '<p>Sin fotos.</p></div>';
@@ -441,24 +505,38 @@
       N.leerFoto(el.getAttribute('data-foto')).then(function (d) { if (d) { el.style.backgroundImage = 'url(' + d + ')'; el.querySelector('svg') && el.querySelector('svg').remove(); } });
     });
   }
+  /** Reduce la foto a 1280 px, le pone sello (AXION · parte · fecha) y la devuelve en JPEG. */
   function comprimir(file, sello) {
-    return new Promise(function (ok, mal) {
-      var img = new Image();
-      img.onload = function () {
-        var k = Math.min(1, 1280 / Math.max(img.width, img.height));
-        var c = document.createElement('canvas');
-        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        var g = c.getContext('2d');
-        g.drawImage(img, 0, 0, c.width, c.height);
-        var fs = Math.max(14, Math.round(c.width / 45));
-        g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, c.height - fs * 1.8, c.width, fs * 1.8);
-        g.fillStyle = '#FF6B00'; g.font = 'bold ' + fs + 'px sans-serif';
-        g.fillText(sello, fs * 0.6, c.height - fs * 0.6);
-        URL.revokeObjectURL(img.src);
-        ok(c.toDataURL('image/jpeg', 0.6));
-      };
-      img.onerror = function () { mal(new Error('No se pudo leer la imagen.')); };
-      img.src = URL.createObjectURL(file);
+    var cargar = function () {
+      // createImageBitmap respeta la orientación EXIF y lee más formatos; si no existe, se usa <img>
+      if (window.createImageBitmap) {
+        return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () { return createImageBitmap(file); });
+      }
+      return new Promise(function (ok, mal) {
+        var img = new Image();
+        img.onload = function () { ok(img); };
+        img.onerror = function () { mal(new Error('x')); };
+        img.src = URL.createObjectURL(file);
+      });
+    };
+    return cargar().then(function (img) {
+      var w = img.width, h = img.height;
+      if (!w || !h) throw new Error('x');
+      var k = Math.min(1, 1280 / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k);
+      var g = c.getContext('2d');
+      g.drawImage(img, 0, 0, c.width, c.height);
+      if (img.close) img.close();
+      var fs = Math.max(14, Math.round(c.width / 45));
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, c.height - fs * 1.8, c.width, fs * 1.8);
+      g.fillStyle = '#FF6B00'; g.font = 'bold ' + fs + 'px sans-serif';
+      g.fillText(sello, fs * 0.6, c.height - fs * 0.6);
+      var url = c.toDataURL('image/jpeg', 0.6);
+      if (url.indexOf('data:image/jpeg') !== 0) throw new Error('x');
+      return url;
+    }).catch(function () {
+      throw new Error('No se pudo leer la foto (formato no compatible). Pruebe con "Galería" o configure la cámara para guardar en JPG.');
     });
   }
 
@@ -799,6 +877,7 @@
     pasoSig: function (b) {
       var err = guardarPaso(b.dataset.id, Number(b.dataset.p));
       if (err) { toast(err); return; }
+      olvidarEscrito();
       location.hash = '#/parte/' + b.dataset.id + '/paso/' + (Number(b.dataset.p) + 1);
     },
     pasoAnt: function (b) { guardarPaso(b.dataset.id, Number(b.dataset.p)); location.hash = '#/parte/' + b.dataset.id + '/paso/' + (Number(b.dataset.p) - 1); },
@@ -824,7 +903,9 @@
     },
     foto: function (b) {
       fotoMeta = { ParteID: b.dataset.id, TipoEvidencia: b.dataset.tipo, FallaID: b.dataset.falla || '', AbastecimientoID: b.dataset.abast || '' };
-      var inp = document.getElementById('camara');
+      // si el sistema cierra la app al abrir la cámara (pasa en Android con poca memoria), al volver se avisa
+      try { sessionStorage.setItem('axion_foto_pend', JSON.stringify({ meta: fotoMeta, hash: location.hash, t: Date.now() })); } catch (x) { /* nada */ }
+      var inp = document.getElementById(b.dataset.modo === 'galeria' ? 'galeria' : 'camara');
       inp.value = '';
       inp.click();
     },
@@ -868,19 +949,44 @@
       if (m) { var p = getParte(m[1]); var a = busca('ASIGNACIONES', 'AsignacionID', e.target.value); tmp[p.ParteID] = Object.assign({}, p, { AsignacionID: a.AsignacionID, FrenteID: a.FrenteID }); if (!p.Estado) render(); else document.querySelectorAll('.opcion').forEach(function (o) { o.setAttribute('aria-checked', o.contains(e.target)); }); }
     }
   });
-  document.getElementById('camara').addEventListener('change', function (e) {
+  function alElegirFoto(e) {
     var file = e.target.files && e.target.files[0];
+    try { sessionStorage.removeItem('axion_foto_pend'); } catch (x) { /* nada */ }
     if (!file || !fotoMeta) return;
-    var p = getParte(fotoMeta.ParteID);
+    var meta = fotoMeta;
+    var p = getParte(meta.ParteID);
+    if (!p) { toast('El parte ya no está en este celular. Vuelva a abrirlo y tome la foto otra vez.'); return; }
     var sello = 'AXION · ' + (p.CodigoParte || '') + ' · ' + fF(R.enLima(Date.now()).fecha) + ' ' + R.enLima(Date.now()).hora;
-    comprimir(file, sello).then(function (url) { return N.foto(fotoMeta, url); }).then(function () { toast('Foto guardada'); render(); }, function (err) { toast(err.message); });
-  });
+    toast('Procesando foto…');
+    comprimir(file, sello).then(function (url) { return N.foto(meta, url); })
+      .then(function () { toast('Foto guardada'); render(); }, function (err) { toast(err.message); });
+  }
+  document.getElementById('camara').addEventListener('change', alElegirFoto);
+  document.getElementById('galeria').addEventListener('change', alElegirFoto);
+  (function avisoFotoPerdida() {
+    try {
+      var pend = JSON.parse(sessionStorage.getItem('axion_foto_pend') || 'null');
+      sessionStorage.removeItem('axion_foto_pend');
+      if (pend && Date.now() - pend.t < 10 * 60000) {
+        setTimeout(function () { toast('La cámara cerró la app y la foto no llegó. Lo escrito se recuperó: tome la foto de nuevo o use "Galería".'); }, 1500);
+        if (pend.hash) location.hash = pend.hash;
+      }
+    } catch (x) { /* nada */ }
+  })();
 
   // ------------------------------------------------------------ rutas
   /** Conserva lo escrito y aún no guardado cuando el formulario se redibuja (foto, ventana emergente, sincronización). */
   var escrito = null;
   function capturarEscrito() {
-    if (document.getElementById('fPaso')) escrito = { hash: location.hash, vals: valoresForm() };
+    if (document.getElementById('fPaso')) { escrito = { hash: location.hash, vals: valoresForm() }; return; }
+    // la app pudo cerrarse (p. ej. al abrir la cámara): recuperar lo escrito guardado en el celular
+    try { escrito = escrito || JSON.parse(sessionStorage.getItem('axion_form') || 'null'); } catch (x) { /* nada */ }
+  }
+  function respaldarEscrito() {
+    try { sessionStorage.setItem('axion_form', JSON.stringify({ hash: location.hash, vals: valoresForm() })); } catch (x) { /* nada */ }
+  }
+  function olvidarEscrito() {
+    try { sessionStorage.removeItem('axion_form'); } catch (x) { /* nada */ }
   }
   function restaurarEscrito() {
     if (!escrito || escrito.hash !== location.hash) { escrito = null; return; }
@@ -905,6 +1011,7 @@
 
   function renderRuta() {
     var s = S();
+    if (s && s.token && s.perfil && s.perfil.DebeCambiarClave) { vCambiarClave(); return; }
     if (!s || !s.token || !s.perfil || !s.cat) { vIngreso(s && s.errorSync && !s.token ? 'La sesión venció. Ingrese nuevamente (sus cambios pendientes se conservan).' : ''); return; }
     var h = location.hash || '';
     var q = {};
