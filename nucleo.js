@@ -159,6 +159,28 @@ var Nucleo = (function () {
     programar(1500);
   }
 
+  /** Quita del celular un borrador y todo lo suyo; si el servidor ya lo tenía, pide borrarlo allá también. */
+  function quitarParte(id) {
+    delete S.t.PARTES_DIARIOS[id];
+    HIJAS.concat(['FALLAS']).forEach(function (t) {
+      var o = S.t[t];
+      for (var k in o) if (o[k].ParteID === id) {
+        if (t === 'EVIDENCIAS') idb('fotos', 'readwrite', function (s) { return s.delete(k); }).catch(function () {});
+        delete o[k];
+      }
+    });
+  }
+  function eliminarParte(id) {
+    var p = S.t.PARTES_DIARIOS[id];
+    if (!p) return;
+    var enServidor = p._srv || S.outbox.some(function (it) { return it.enviando && (it.ref === id || it.parte === id); });
+    S.outbox = S.outbox.filter(function (it) { return it.enviando || !(it.ref === id || it.parte === id); });
+    quitarParte(id);
+    if (enServidor) encolar({ op: 'eliminar', tabla: 'PARTES_DIARIOS', ref: id, parte: '', id: id });
+    avisar();
+    programar(800);
+  }
+
   function accion(parte, acc, comentario) {
     var r = { RevisionID: nuevoID('REV'), ParteID: parte.ParteID, Accion: acc, Comentario: comentario || '',
       VersionParte: Number(parte.Version || 0), FechaHoraDispositivo: Reglas.isoLima(Date.now()),
@@ -243,7 +265,9 @@ var Nucleo = (function () {
           if (res.fila.revision.ResultadoServidor === 'RECHAZADA')
             rechazar(it, { message: res.fila.revision.DetalleServidor, codigo: 'RECHAZADA' });
         } else if (it.op === 'guardar') {
-          aplicarServidor(it.tabla, res.fila);
+          // si el borrador se eliminó mientras este cambio viajaba, no se vuelve a mostrar
+          var borrado = S.outbox.some(function (x) { return x.op === 'eliminar' && x.tabla === 'PARTES_DIARIOS' && (x.id === it.ref || x.id === it.parte); });
+          if (!borrado) aplicarServidor(it.tabla, res.fila);
         }
       });
       S.outbox.sort(function (a, b) { return a.seq - b.seq; });
@@ -292,6 +316,7 @@ var Nucleo = (function () {
           for (var k in o) if (partesNuevas[o[k].ParteID] && !pendiente[k]) delete o[k];
         });
       }
+      (d.eliminados || []).forEach(function (id) { if (!pendiente[id] && !pendiente['P:' + id]) quitarParte(id); });
       d.PARTES_DIARIOS.forEach(function (p) { if (!pendiente[p.ParteID] && !pendiente['P:' + p.ParteID]) aplicarServidor('PARTES_DIARIOS', p); });
       HIJAS.forEach(function (t) { d[t].forEach(function (f) { if (!pendiente[f[TABLAS[t]]]) aplicarServidor(t, f); }); });
       ['FALLAS', 'CUMPLIMIENTO'].forEach(function (t) {
@@ -311,7 +336,7 @@ var Nucleo = (function () {
   return {
     iniciar: iniciar, alCambiar: alCambiar, estado: function () { return S; }, ingresar: ingresar, salir: salir, cambiarClave: cambiarClave,
     filas: filas, fila: fila, hijos: hijos, pendientesDe: pendientesDe, estadoVisible: estadoVisible,
-    nuevoID: nuevoID, guardar: guardar, eliminar: eliminar, accion: accion, foto: foto, leerFoto: leerFoto,
+    nuevoID: nuevoID, guardar: guardar, eliminar: eliminar, eliminarParte: eliminarParte, accion: accion, foto: foto, leerFoto: leerFoto,
     guardarFoto: guardarFoto, sincronizar: sincronizar, api: api, ocupado: function () { return sincronizando; }
   };
 })();

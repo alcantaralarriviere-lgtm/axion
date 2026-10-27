@@ -58,6 +58,11 @@
     if (N.estado().outbox.some(function (it) { return it.op === 'accion' && it.fila.ParteID === p.ParteID; })) return false;
     return !p.Estado || p.Estado === 'BORRADOR' || (p.Estado === 'OBSERVADO' && perfil().PuedeCorregir);
   }
+  /** Un borrador propio que nunca se envió se puede eliminar (p. ej., si eligió el equipo equivocado). */
+  function borrable(p) { return editable(p) && (p.Estado || 'BORRADOR') === 'BORRADOR' && !p.FechaRecepcionServidor; }
+  function botonBorrarParte(p) {
+    return borrable(p) ? '<button class="btn peligro ancho" data-a="borrarParte" data-id="' + p.ParteID + '">' + ic('trash') + 'Eliminar borrador</button>' : '';
+  }
 
   var EST = {
     BORRADOR: ['file', '', 'Borrador'], PENDIENTE_REVISION: ['clock', 'acento', 'Por revisar'], OBSERVADO: ['alert', 'alerta', 'Observado'],
@@ -178,7 +183,8 @@
       var delTurno = mis.filter(function (a) { return a.Turno === tu; });
       if (hecho) {
         return '<div class="etiqueta-seccion">' + esc(turno(tu).Nombre || tu) + ' · ' + fF(fecha) + '</div>' + tarjetaParte(hecho) +
-          (editable(hecho) ? '<a class="btn primario ancho" href="#/parte/' + hecho.ParteID + '/paso/3">' + ic('edit') + 'Continuar parte</a>' : '');
+          (editable(hecho) ? '<a class="btn primario ancho" href="#/parte/' + hecho.ParteID + '/paso/3">' + ic('edit') + 'Continuar parte</a>' : '') +
+          botonBorrarParte(hecho);
       }
       if (delTurno.length <= 2) return delTurno.map(function (a) { return tarjetaAsignacion(a, fecha, tu === pr.turno); }).join('');
       return '<div class="etiqueta-seccion">' + esc(turno(tu).Nombre || tu) + ' · elija el equipo que opera hoy (' + delTurno.length + ')</div>' +
@@ -196,7 +202,7 @@
         '<div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3><div class="sub">' + esc(nombreObra(a.ObraID)) + ' · ' + esc(turno(a.Turno).Nombre || a.Turno) + '</div>' +
         '<div class="mini">Fecha de trabajo ' + fF(fecha) + '</div></div>' + (p ? chip(p) : '') + '</div>' +
         '<div class="acciones" style="margin-top:12px">' + (p
-          ? '<a class="btn ' + (editable(p) ? 'primario' : '') + ' ancho" href="#/parte/' + p.ParteID + (editable(p) ? '/paso/3' : '') + '">' + (editable(p) ? ic('edit') + 'Continuar parte' : ic('right') + 'Ver parte') + '</a>'
+          ? '<a class="btn ' + (editable(p) ? 'primario' : '') + ' ancho" href="#/parte/' + p.ParteID + (editable(p) ? '/paso/3' : '') + '">' + (editable(p) ? ic('edit') + 'Continuar parte' : ic('right') + 'Ver parte') + '</a>' + botonBorrarParte(p)
           : '<a class="btn ' + (actual ? 'primario' : '') + ' ancho" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + fecha + '">' + ic('plus') + 'Iniciar parte</a>') + '</div></article>';
     }
     var obs = N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === perfil().OperadorID; });
@@ -697,6 +703,7 @@
     if (N.estado().outbox.some(function (it) { return it.op === 'accion' && it.fila.ParteID === id; })) permitidas = [];
     var botones = '';
     if (editable(p)) botones += '<a class="btn primario ancho" href="#/parte/' + id + '/paso/' + (p.Estado === 'OBSERVADO' ? 3 : 8) + '">' + ic('edit') + (p.Estado === 'OBSERVADO' ? 'Corregir parte' : 'Continuar y enviar') + '</a>';
+    botones += botonBorrarParte(p);
     var etiquetas = { APROBAR: ['checkc', 'primario', 'Aprobar'], OBSERVAR: ['alert', '', 'Observar'], EXCEPCION: ['check', '', 'Aceptar excepción de lectura'], ANULAR: ['x', 'peligro', 'Anular'], REABRIR: ['refresh', '', 'Reabrir'] };
     permitidas.filter(function (a) { return etiquetas[a] && (a !== 'EXCEPCION' || (p.ExcepcionLectura && !p.ExcepcionAutorizadaPor)); }).forEach(function (a) {
       var e = etiquetas[a];
@@ -900,6 +907,18 @@
     vincForm: function (b) { formVinculo(b.dataset.id); },
     borrar: function (b) {
       confirmar('Eliminar', '¿Eliminar este registro del parte?', 'Eliminar', true).then(function (si) { if (si) { N.eliminar(b.dataset.t, b.dataset.k); render(); } });
+    },
+    borrarParte: function (b) {
+      var p = getParte(b.dataset.id);
+      if (!borrable(p)) { toast('Este parte ya no se puede eliminar.'); return; }
+      confirmar('Eliminar borrador', 'Se borrará el parte ' + (p.CodigoParte || '') + ' con todo lo registrado en él (actividades, viajes, fotos). ' +
+        'Luego podrá iniciar el parte con el equipo correcto. No se puede deshacer.', 'Eliminar', true).then(function (si) {
+        if (!si) return;
+        olvidarEscrito();
+        N.eliminarParte(p.ParteID);
+        toast('Borrador eliminado');
+        if (location.hash === '#/inicio') render(); else location.hash = '#/inicio';
+      });
     },
     foto: function (b) {
       fotoMeta = { ParteID: b.dataset.id, TipoEvidencia: b.dataset.tipo, FallaID: b.dataset.falla || '', AbastecimientoID: b.dataset.abast || '' };
