@@ -132,14 +132,114 @@ var Reglas = (function () {
     if (cfg.FOTO_FALLA_OBLIGATORIA === 'SI') fallas.forEach(function (x) {
       if (x.ParteID === p.ParteID && !evid.some(function (e) { return e.FallaID === x.FallaID; })) f.push('Falla ' + (x.Componente || ''));
     });
-    if (cfg.FOTO_ABASTECIMIENTO_OBLIGATORIA === 'SI') abast.forEach(function (x) {
-      if (x.ParteID === p.ParteID && !evid.some(function (e) { return e.AbastecimientoID === x.AbastecimientoID; })) f.push('Horómetro de abastecimiento');
+    abast.forEach(function (x) {
+      if (x.ParteID !== p.ParteID) return;
+      var de = function (tipo) { return evid.some(function (e) { return e.AbastecimientoID === x.AbastecimientoID && e.TipoEvidencia === tipo; }); };
+      var g = ' (' + (num(x.Galones) === null ? '' : x.Galones + ' gal') + ')';
+      if (cfg.FOTO_ABASTECIMIENTO_OBLIGATORIA === 'SI' && equipo.TieneHorometro && !de('HOROMETRO_ABASTECIMIENTO')) f.push('Horómetro de abastecimiento' + g);
+      if (cfg.FOTO_COMBUSTIBLE_OBLIGATORIA !== 'NO') {
+        if (!de('ABASTECIMIENTO')) f.push('Abastecimiento' + g);
+        if (!de('CANTIDAD_ABASTECIDA')) f.push('Cantidad abastecida' + g);
+      }
     });
     return f;
   }
 
+  // ------------------------------------------------------------ inteligencia artificial
+  var CONF_OK = ['ALTA', 'MEDIA'];
+  /** Valor leído por la IA si es confiable; null si es dudoso, ilegible o falta. */
+  function valorIA(campo) {
+    if (!campo || campo.valor === null || campo.valor === undefined || campo.valor === '') return null;
+    return CONF_OK.indexOf(campo.confianza) >= 0 ? campo.valor : null;
+  }
+  function resultadoIA(l) {
+    if (!l || !l.Resultado) return null;
+    if (typeof l.Resultado === 'object') return l.Resultado;
+    try { return JSON.parse(l.Resultado); } catch (e) { return null; }
+  }
+  function normCodigo(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^ICN/, ''); }
+
+  /**
+   * Compara lo leído por la IA (parte en papel y fotos de instrumentos/combustible) con lo registrado
+   * en la app y con la base maestra. Devuelve [{campo, estado, mensaje}] con estado
+   * RECONOCIDO | DUDOSO | ILEGIBLE | INCONSISTENTE. Nunca completa ni corrige datos.
+   */
+  function contrastarIA(p, equipo, lecturasIA, abast, cfg, operadorNombre) {
+    var out = [];
+    var add = function (campo, estado, mensaje) { out.push({ campo: campo, estado: estado, mensaje: mensaje }); };
+    var tol = { h: Number(cfg.TOL_IA_HOROMETRO_H || 0.2), km: Number(cfg.TOL_IA_ODOMETRO_KM || 1), gal: Number(cfg.TOL_IA_GALONES || 0.5) };
+    var porTipo = function (t) {
+      return lecturasIA.filter(function (l) { return l.ParteID === p.ParteID && l.TipoEvidencia === t && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA'); })
+        .sort(function (a, b) { return String(b.FechaHoraServidor).localeCompare(String(a.FechaHoraServidor)); });
+    };
+    var estadoDe = function (c) {
+      if (!c || c.valor === null || c.valor === undefined || c.valor === '' || c.confianza === 'ILEGIBLE') return 'ILEGIBLE';
+      return CONF_OK.indexOf(c.confianza) >= 0 ? 'RECONOCIDO' : 'DUDOSO';
+    };
+    var papelL = porTipo('PARTE_FISICO_FIRMADO')[0];
+    var papel = resultadoIA(papelL);
+    var lect = [];
+    if (equipo.TieneHorometro) lect.push(['HorometroInicial', 'horometro_inicial', 'HOROMETRO_INICIAL', 'Horómetro inicial', tol.h], ['HorometroFinal', 'horometro_final', 'HOROMETRO_FINAL', 'Horómetro final', tol.h]);
+    if (equipo.TieneOdometro) lect.push(['OdometroInicial', 'odometro_inicial', 'ODOMETRO_INICIAL', 'Odómetro inicial', tol.km], ['OdometroFinal', 'odometro_final', 'ODOMETRO_FINAL', 'Odómetro final', tol.km]);
+    lect.forEach(function (x) {
+      var app = num(p[x[0]]);
+      var dePapel = papel ? papel[x[1]] : null;
+      var foto = resultadoIA(porTipo(x[2])[0]);
+      var deFoto = foto ? foto.lectura : null;
+      var vp = num(valorIA(dePapel)), vf = num(valorIA(deFoto));
+      if (papel && estadoDe(dePapel) !== 'RECONOCIDO') add(x[3], estadoDe(dePapel), x[3] + ' en el parte de papel: ' + (estadoDe(dePapel) === 'ILEGIBLE' ? 'no se pudo leer' : 'lectura dudosa ("' + (dePapel.texto || dePapel.valor) + '")') + '. Verifíquelo.');
+      if (foto && estadoDe(deFoto) !== 'RECONOCIDO') add(x[3], estadoDe(deFoto), x[3] + ' en la foto del instrumento: ' + (estadoDe(deFoto) === 'ILEGIBLE' ? 'no se ve con claridad; tome otra foto' : 'lectura dudosa (' + (deFoto.texto || deFoto.valor) + ')') + '.');
+      if (foto && foto.es_instrumento_correcto === false) add(x[3], 'INCONSISTENTE', 'La foto de ' + x[3].toLowerCase() + ' no parece mostrar el instrumento correcto.');
+      if (vp !== null && vf !== null && Math.abs(vp - vf) > x[4]) add(x[3], 'INCONSISTENTE', x[3] + ': el parte de papel dice ' + vp + ' y la foto del instrumento muestra ' + vf + '.');
+      if (app !== null && vp !== null && Math.abs(app - vp) > x[4]) add(x[3], 'INCONSISTENTE', x[3] + ': en la app figura ' + app + ' pero el parte de papel dice ' + vp + '.');
+      if (app !== null && vf !== null && Math.abs(app - vf) > x[4]) add(x[3], 'INCONSISTENTE', x[3] + ': en la app figura ' + app + ' pero la foto del instrumento muestra ' + vf + '.');
+      if (app === null && (vp !== null || vf !== null)) add(x[3], 'RECONOCIDO', x[3] + ' leído: ' + (vp !== null ? vp : vf) + ' (aún no registrado en la app).');
+    });
+    [['horometro_inicial', 'horometro_final', 'horómetro', Number(cfg.MAX_HORAS_TURNO || 24)], ['odometro_inicial', 'odometro_final', 'odómetro', Number(cfg.MAX_KM_TURNO || 1000)]].forEach(function (x) {
+      if (!papel) return;
+      var a = num(valorIA(papel[x[0]])), b = num(valorIA(papel[x[1]]));
+      if (a !== null && b !== null && b < a) add('Lecturas', 'INCONSISTENTE', 'En el parte de papel el ' + x[2] + ' final (' + b + ') es menor que el inicial (' + a + ').');
+      else if (a !== null && b !== null && b - a > x[3]) add('Lecturas', 'INCONSISTENTE', 'En el parte de papel la diferencia de ' + x[2] + ' (' + Math.round((b - a) * 10) / 10 + ') supera el máximo por turno.');
+    });
+    if (papel) {
+      var cod = papel.codigo_equipo, codV = valorIA(cod);
+      if (codV && normCodigo(codV) !== normCodigo(equipo.CodigoInterno) && normCodigo(codV) !== normCodigo(equipo.PlacaSerie))
+        add('Equipo', 'INCONSISTENTE', 'El parte de papel indica el equipo "' + codV + '" pero el parte es de ' + equipo.CodigoInterno + '.');
+      else if (!codV) add('Equipo', estadoDe(cod), 'No se pudo confirmar el código del equipo en el parte de papel.');
+      var fe = valorIA(papel.fecha);
+      if (fe && fe !== p.FechaTrabajo) add('Fecha', 'INCONSISTENTE', 'El parte de papel tiene fecha ' + fe + ' y el parte digital ' + p.FechaTrabajo + '.');
+      else if (!fe) add('Fecha', estadoDe(papel.fecha), 'No se pudo confirmar la fecha en el parte de papel.');
+      var tu = valorIA(papel.turno);
+      if (tu && tu !== p.Turno) add('Turno', 'INCONSISTENTE', 'El parte de papel indica turno ' + tu + ' y el parte digital ' + p.Turno + '.');
+      var op = valorIA(papel.operador);
+      if (op && operadorNombre) {
+        var pal = function (s) { return String(s).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^A-Z]+/).filter(function (w) { return w.length > 2; }); };
+        var comunes = pal(op).filter(function (w) { return pal(operadorNombre).indexOf(w) >= 0; });
+        if (!comunes.length) add('Operador', 'INCONSISTENTE', 'El parte de papel está a nombre de "' + op + '" y no coincide con ' + operadorNombre + '.');
+      }
+      (papel.actividades || []).forEach(function (a, i) {
+        if (CONF_OK.indexOf(a.confianza) < 0) add('Actividad ' + (i + 1), a.confianza === 'ILEGIBLE' ? 'ILEGIBLE' : 'DUDOSO', 'Actividad ' + (i + 1) + ': "' + (a.texto || '?') + '" no se reconoce con seguridad.');
+      });
+      (papel.viajes || []).forEach(function (v, i) {
+        if (CONF_OK.indexOf(v.confianza) < 0) add('Viaje ' + (i + 1), v.confianza === 'ILEGIBLE' ? 'ILEGIBLE' : 'DUDOSO', 'Viaje ' + (i + 1) + ': datos poco legibles ("' + (v.texto || '?') + '").');
+      });
+      (papel.no_reconocido || []).forEach(function (t) { add('Texto', 'ILEGIBLE', 'Zona no reconocida: ' + t); });
+    }
+    abast.filter(function (x) { return x.ParteID === p.ParteID; }).forEach(function (x) {
+      var l = lecturasIA.filter(function (y) {
+        return y.TipoEvidencia === 'CANTIDAD_ABASTECIDA' && (y.Estado === 'PROCESADA' || y.Estado === 'CONFIRMADA') && (resultadoIA(y) || {}).abastecimiento_id === x.AbastecimientoID;
+      })[0];
+      var r = resultadoIA(l);
+      if (!r) return;
+      var g = num(valorIA(r.galones));
+      if (g === null) add('Combustible', estadoDe(r.galones), 'No se pudo leer con claridad la cantidad de galones en la foto: tome otra foto o valídela manualmente.');
+      else if (Math.abs(g - Number(x.Galones)) > tol.gal) add('Combustible', 'INCONSISTENTE', 'Se registraron ' + x.Galones + ' gal pero la foto muestra ' + g + ' gal.');
+    });
+    return out;
+  }
+
   /** ¿Se puede ENVIAR? Devuelve {ok, faltan:[textos]} */
-  function revisarEnvio(p, equipo, acts, turno, catalogo, evid, fallas, abast, cfg) {
+  function revisarEnvio(p, equipo, acts, turno, catalogo, evid, fallas, abast, cfg, lecturasIA) {
     var faltan = [];
     var l = lecturas(p, equipo, cfg, true);
     faltan = faltan.concat(l.errores);
@@ -150,6 +250,10 @@ var Reglas = (function () {
     var al = alertasActividades(acts, turno, catalogo, cfg);
     Object.keys(al).forEach(function (k) { if (al[k]) faltan.push('Actividad: ' + al[k] + '.'); });
     fotosFaltantes(p, equipo, evid, fallas, abast, cfg).forEach(function (x) { faltan.push('Falta foto: ' + x + '.'); });
+    if (!abast.some(function (x) { return x.ParteID === p.ParteID; }) && p.SinAbastecimiento !== true)
+      faltan.push('Combustible: registre el abastecimiento o marque "Hoy no hubo abastecimiento".');
+    var porConfirmar = (lecturasIA || []).filter(function (l) { return l.ParteID === p.ParteID && l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && l.Estado === 'PROCESADA'; });
+    if (porConfirmar.length) faltan.push('Revise y confirme lo que la IA leyó del parte de papel.');
     return { ok: faltan.length === 0, faltan: faltan };
   }
 
@@ -200,6 +304,7 @@ var Reglas = (function () {
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
+    valorIA: valorIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA,
     estadoCumplimiento: estadoCumplimiento, accionesPermitidas: accionesPermitidas,
     ESTADO_DESTINO: ESTADO_DESTINO, REQUIERE_COMENTARIO: REQUIERE_COMENTARIO };
 })();

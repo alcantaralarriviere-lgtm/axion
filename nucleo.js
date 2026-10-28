@@ -4,8 +4,12 @@
  */
 var Nucleo = (function () {
   var TABLAS = { PARTES_DIARIOS: 'ParteID', ACTIVIDADES: 'ActividadID', VIAJES: 'ViajeID', ABASTECIMIENTOS: 'AbastecimientoID',
-    EVIDENCIAS: 'EvidenciaID', REVISIONES: 'RevisionID', FALLAS_PARTES: 'FallaParteID', FALLAS: 'FallaID', CUMPLIMIENTO: 'CumplimientoID' };
-  var HIJAS = ['ACTIVIDADES', 'VIAJES', 'ABASTECIMIENTOS', 'EVIDENCIAS', 'REVISIONES', 'FALLAS_PARTES'];
+    EVIDENCIAS: 'EvidenciaID', REVISIONES: 'RevisionID', FALLAS_PARTES: 'FallaParteID', FALLAS: 'FallaID', CUMPLIMIENTO: 'CumplimientoID',
+    LECTURAS_IA: 'LecturaID' };
+  var HIJAS = ['ACTIVIDADES', 'VIAJES', 'ABASTECIMIENTOS', 'EVIDENCIAS', 'REVISIONES', 'FALLAS_PARTES', 'LECTURAS_IA'];
+  var IA_TIPOS = ['PARTE_FISICO_FIRMADO', 'HOROMETRO_INICIAL', 'HOROMETRO_FINAL', 'ODOMETRO_INICIAL', 'ODOMETRO_FINAL',
+    'HOROMETRO_ABASTECIMIENTO', 'ABASTECIMIENTO', 'CANTIDAD_ABASTECIDA'];
+  var ia = {};  // estado de lectura con IA por foto: {estado: 'leyendo'|'error', msg, codigo, t}
   var REINTENTABLE = ['RED', 'OCUPADO', 'SESION'];
   var S = null;
   var oyentes = [];
@@ -203,6 +207,39 @@ var Nucleo = (function () {
     });
   }
 
+  // ------------------------------------------------------------ lectura con IA (en el servidor)
+  function iaLista() { return !!(S && S.cat && S.cat.CONFIGURACION && S.cat.CONFIGURACION.IA_LISTA === 'SI'); }
+  function lecturaDe(evId) {
+    return filas('LECTURAS_IA', function (l) { return l.EvidenciaID === evId; })
+      .sort(function (a, b) { return String(a.FechaHoraServidor).localeCompare(String(b.FechaHoraServidor)); }).pop() || null;
+  }
+  /** Pide al servidor leer una foto ya recibida. La IA tarda unos segundos; el resultado queda en LECTURAS_IA. */
+  function leerIA(evId, repetir) {
+    if (ia[evId] && ia[evId].estado === 'leyendo') return Promise.resolve();
+    ia[evId] = { estado: 'leyendo', t: Date.now() };
+    avisar();
+    return api('leerFoto', { EvidenciaID: evId, repetir: !!repetir }).then(function (r) {
+      delete ia[evId];
+      aplicarServidor('LECTURAS_IA', r.lectura);
+      avisar();
+    }, function (e) {
+      ia[evId] = { estado: 'error', msg: e.message, codigo: e.codigo, t: Date.now() };
+      if (e.codigo === 'IA_ERROR') descargar(false).catch(function () {});  // trae la fila ERROR guardada
+      avisar();
+    });
+  }
+  /** Fotos propias ya recibidas que aún no se leyeron (p. ej., se tomaron sin señal). Máximo 3 por vez. */
+  function leerPendientesIA() {
+    if (!iaLista() || !S.perfil || !S.perfil.OperadorID) return;
+    filas('EVIDENCIAS', function (e) {
+      var p = S.t.PARTES_DIARIOS[e.ParteID];
+      var est = ia[e.EvidenciaID];
+      return e._srv && IA_TIPOS.indexOf(e.TipoEvidencia) >= 0 && p && p.OperadorID === S.perfil.OperadorID &&
+        (p.Estado === 'BORRADOR' || p.Estado === 'OBSERVADO') && !lecturaDe(e.EvidenciaID) &&
+        !(est && (est.estado === 'leyendo' || Date.now() - est.t < 10 * 60000));
+    }).slice(0, 3).forEach(function (e) { leerIA(e.EvidenciaID); });
+  }
+
   // ------------------------------------------------------------ sincronización
   var tProg = null;
   function programar(ms) { clearTimeout(tProg); tProg = setTimeout(sincronizar, ms); }
@@ -237,6 +274,7 @@ var Nucleo = (function () {
       }).then(function (r) {
         S.outbox = S.outbox.filter(function (x) { return x !== f; });
         aplicarServidor('EVIDENCIAS', r.fila);
+        if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) leerIA(r.fila.EvidenciaID);  // en paralelo, no frena la cola
       }, function (e) {
         f.enviando = false;
         if (REINTENTABLE.indexOf(e.codigo) >= 0) throw e;
@@ -289,6 +327,7 @@ var Nucleo = (function () {
     return paso().then(function () { return descargar(false); }).then(function () {
       S.ultimaSync = Date.now();
       S.errorSync = '';
+      leerPendientesIA();
     }, function (e) {
       S.errorSync = e.message;
       if (e.codigo === 'SESION') { S.token = null; }
@@ -337,6 +376,7 @@ var Nucleo = (function () {
     iniciar: iniciar, alCambiar: alCambiar, estado: function () { return S; }, ingresar: ingresar, salir: salir, cambiarClave: cambiarClave,
     filas: filas, fila: fila, hijos: hijos, pendientesDe: pendientesDe, estadoVisible: estadoVisible,
     nuevoID: nuevoID, guardar: guardar, eliminar: eliminar, eliminarParte: eliminarParte, accion: accion, foto: foto, leerFoto: leerFoto,
-    guardarFoto: guardarFoto, sincronizar: sincronizar, api: api, ocupado: function () { return sincronizando; }
+    guardarFoto: guardarFoto, sincronizar: sincronizar, api: api, ocupado: function () { return sincronizando; },
+    iaLista: iaLista, leerIA: leerIA, lecturaDe: lecturaDe, estadoIA: function (evId) { return ia[evId] || null; }, IA_TIPOS: IA_TIPOS
   };
 })();

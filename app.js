@@ -348,7 +348,11 @@
       var al = R.alertasActividades(acts, turno(p.Turno), catAct(), cfg());
       var prod = acts.filter(function (a) { var t = (catAct()[a.ActividadCatID] || {}).TipoActividad; return t === 'PRODUCTIVA' || t === 'SERVICIO'; })
         .reduce(function (s, a) { return s + Number(a.DuracionHoras || 0); }, 0);
-      return '<p class="sub">Registre cada actividad con su hora. Las horas productivas no son las del horómetro.</p>' +
+      var lp = ultimaLecturaParte(p.ParteID);
+      var bannerIA = N.iaLista() || lp ? '<a class="aviso acento" href="#/parte/' + p.ParteID + '/ia" style="text-decoration:none;color:inherit">' + ic('camera') +
+        '<div class="crece"><strong>' + (lp ? (lp.Estado === 'CONFIRMADA' ? 'Parte de papel leído y confirmado' : 'La IA leyó su parte de papel: revíselo y confírmelo') : '¿Llenó el parte en papel?') + '</strong>' +
+        '<div class="sub">' + (lp ? esc(lp.Resumen || '') : 'Tómele una foto y la inteligencia artificial completa lecturas, actividades y viajes. Usted revisa y confirma.') + '</div></div>' + ic('right') + '</a>' : '';
+      return bannerIA + '<p class="sub">Registre cada actividad con su hora. Las horas productivas no son las del horómetro.</p>' +
         '<div class="lista">' + (acts.map(function (a) {
           var c = catAct()[a.ActividadCatID] || {};
           return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(c.Nombre) + '</h3><div class="mini num">' + a.HoraInicio + '–' + a.HoraFin + ' · ' + n1(a.DuracionHoras) + ' h' + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div>' +
@@ -372,8 +376,14 @@
         '<div class="etiqueta-seccion">Abastecimiento de combustible</div><div class="lista">' + abs.map(function (x) {
           return '<div class="tarjeta"><div class="entre"><div><h3>' + n1(x.Galones) + ' gal</h3><div class="mini">' + fFH(x.FechaHora) + (x.HorometroAbastecimiento !== '' ? ' · horómetro ' + n1(x.HorometroAbastecimiento) : '') + '</div>' + (x._error ? '<div class="msg-error">' + esc(x._error) + '</div>' : '') + '</div>' +
             '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="ABASTECIMIENTOS" data-k="' + x.AbastecimientoID + '" aria-label="Eliminar abastecimiento">' + ic('trash') + '</button></div>' +
-            '<div style="margin-top:10px">' + botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) + '</div></div>';
-        }).join('') + '</div><button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
+            '<div class="lista" style="margin-top:10px">' +
+            botonFoto(p, 'ABASTECIMIENTO', 'Foto del abastecimiento (que se vea el equipo)', { AbastecimientoID: x.AbastecimientoID }) +
+            botonFoto(p, 'CANTIDAD_ABASTECIDA', 'Foto de la cantidad (surtidor, comprobante o medidor)', { AbastecimientoID: x.AbastecimientoID }) +
+            (eq.TieneHorometro ? botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) : '') + '</div></div>';
+        }).join('') + '</div>' +
+        (abs.length ? '' : '<label class="check tarjeta"><input type="checkbox" data-a="sinAbast" data-id="' + p.ParteID + '"' + (p.SinAbastecimiento === true ? ' checked' : '') + '>' +
+          '<span><strong>Hoy no hubo abastecimiento</strong><span class="sub" style="display:block">Márquelo para que la falta de fotos de combustible no cuente como omisión.</span></span></label>') +
+        '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
     },
     6: function (p) {
       var fs = N.filas('FALLAS', function (f) { return f.ParteID === p.ParteID; });
@@ -419,6 +429,7 @@
         '<dt>Frente</dt><dd>' + esc(nombreFrente(p.FrenteID)) + '</dd><dt>Actividades</dt><dd>' + acts.length + '</dd><dt>Fallas</dt><dd>' + N.filas('FALLAS', function (f) { return f.ParteID === p.ParteID; }).length + '</dd>' +
         '<dt>Fotos</dt><dd>' + N.hijos('EVIDENCIAS', p.ParteID).length + '</dd><dt>Plazo de entrega</dt><dd>' + fFH(p.FechaHoraLimite || R.limite(p.FechaTrabajo, turno(p.Turno))) + '</dd></dl></div>' +
         (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div></div></div>' : '') +
+        listaHallazgos(hallazgosIA(p)) +
         (r.ok ? '<div class="aviso">' + ic('checkc') + '<div><strong>Listo para enviar.</strong> Al enviar ya no podrá modificarlo, salvo que el supervisor lo observe.</div></div>'
           : '<div class="aviso peligro">' + ic('alert') + '<div><strong>Falta completar antes de enviar:</strong><ul>' + r.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>') +
         '<label class="campo"><span>Comentario para el supervisor (opcional)</span><textarea name="ObservacionOperador">' + esc(p.ObservacionOperador) + '</textarea></label>' +
@@ -429,7 +440,24 @@
   function puedeEnviar(p) {
     if (!p.AsignacionID) return { ok: false, faltan: ['Elija el equipo.'] };
     return R.revisarEnvio(p, equipo(p.EquipoID), N.hijos('ACTIVIDADES', p.ParteID), turno(p.Turno), catAct(),
-      N.hijos('EVIDENCIAS', p.ParteID), N.filas('FALLAS'), N.hijos('ABASTECIMIENTOS', p.ParteID), cfg());
+      N.hijos('EVIDENCIAS', p.ParteID), N.filas('FALLAS'), N.hijos('ABASTECIMIENTOS', p.ParteID), cfg(), N.hijos('LECTURAS_IA', p.ParteID));
+  }
+  /** Última lectura de IA del parte de papel (si hay). */
+  function ultimaLecturaParte(parteID) {
+    return N.hijos('LECTURAS_IA', parteID).filter(function (l) { return l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA'); })
+      .sort(function (a, b) { return String(a.FechaHoraServidor).localeCompare(String(b.FechaHoraServidor)); }).pop() || null;
+  }
+  function hallazgosIA(p) {
+    return R.contrastarIA(p, equipo(p.EquipoID), N.hijos('LECTURAS_IA', p.ParteID), N.hijos('ABASTECIMIENTOS', p.ParteID), cfg(), nombreOp(p.OperadorID))
+      .filter(function (h) { return h.estado !== 'RECONOCIDO'; });
+  }
+  function listaHallazgos(hs) {
+    if (!hs.length) return '';
+    var orden = { INCONSISTENTE: 0, ILEGIBLE: 1, DUDOSO: 2 };
+    return '<div class="aviso ' + (hs.some(function (h) { return h.estado === 'INCONSISTENTE'; }) ? 'peligro' : 'acento') + '">' + ic('alert') + '<div><strong>Revise (' + hs.length + ')</strong><ul>' +
+      hs.slice().sort(function (a, b) { return orden[a.estado] - orden[b.estado]; }).map(function (h) {
+        return '<li><span class="estado ' + (h.estado === 'DUDOSO' ? 'duda' : 'peligro') + ' ia-chip">' + esc(h.estado === 'INCONSISTENTE' ? 'Inconsistente' : h.estado === 'ILEGIBLE' ? 'Ilegible' : 'Dudoso') + '</span> ' + esc(h.mensaje) + '</li>';
+      }).join('') + '</ul></div></div>';
   }
 
   function vivo(p, paso) {
@@ -497,7 +525,70 @@
       '<span class="crece">' + esc(texto) + (hecho ? ' · ' + buenas.length + ' foto(s)' + (buenas.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
       '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto"' + datos + '>' + ic('camera') + (hecho ? 'Otra' : 'Cámara') + '</button>' +
       '<button type="button" class="btn chico" data-a="foto" data-modo="galeria"' + datos + ' aria-label="Elegir foto de la galería">' + ic('image') + 'Galería</button>' +
-      (malas.length ? '<div class="msg-error" style="width:100%">' + ic('alert') + '<span>Foto rechazada: ' + esc(malas[0]._error) + '</span></div>' : '') + '</div>';
+      (malas.length ? '<div class="msg-error" style="width:100%">' + ic('alert') + '<span>Foto rechazada: ' + esc(malas[0]._error) + '</span></div>' : '') +
+      (buenas.length ? cajaIA(p, buenas[buenas.length - 1], extra) : '') + '</div>';
+  }
+  /** Contenedor que se actualiza solo cuando llega la lectura de la IA, aunque el formulario esté abierto. */
+  function cajaIA(p, ev, extra) {
+    return '<div class="ia-caja" data-ia-parte="' + p.ParteID + '" data-ia-ev="' + ev.EvidenciaID + '" data-ia-abast="' + esc((extra && extra.AbastecimientoID) || '') + '">' + lineaIA(p, ev, extra) + '</div>';
+  }
+  function refrescarIA() {
+    document.querySelectorAll('.ia-caja').forEach(function (el) {
+      var p = getParte(el.dataset.iaParte), ev = N.fila('EVIDENCIAS', el.dataset.iaEv);
+      if (!p || !ev) return;
+      el.innerHTML = lineaIA(p, ev, { AbastecimientoID: el.dataset.iaAbast });
+      var t = el.parentNode.querySelector('.crece');
+      if (t && ev._srv) t.textContent = t.textContent.replace(' (por enviar)', '');
+    });
+  }
+
+  // ------------------------------------------------------------ lectura con IA
+  var CONF_TXT = { ALTA: ['ok', 'Reconocido'], MEDIA: ['ok', 'Reconocido'], BAJA: ['duda', 'Dudoso'], ILEGIBLE: ['peligro', 'Ilegible'] };
+  function chipConf(c) {
+    var x = CONF_TXT[(c && c.confianza) || 'ILEGIBLE'] || CONF_TXT.ILEGIBLE;
+    return '<span class="estado ' + x[0] + ' ia-chip">' + x[1] + '</span>';
+  }
+  var CAMPO_TIPO = { HOROMETRO_INICIAL: 'HorometroInicial', HOROMETRO_FINAL: 'HorometroFinal', ODOMETRO_INICIAL: 'OdometroInicial', ODOMETRO_FINAL: 'OdometroFinal' };
+  /** Estado de la IA para una foto: leyendo, error, o lo que leyó (con botón para usar el valor). */
+  function lineaIA(p, ev, extra) {
+    if (N.IA_TIPOS.indexOf(ev.TipoEvidencia) < 0 || !N.iaLista() && !N.lecturaDe(ev.EvidenciaID)) return '';
+    var est = N.estadoIA(ev.EvidenciaID);
+    var l = N.lecturaDe(ev.EvidenciaID);
+    var linea = function (cls, html) { return '<div class="ia-linea ' + cls + '">' + ic('activity') + '<span class="crece">' + html + '</span></div>'; };
+    if (est && est.estado === 'leyendo') return linea('', 'IA: leyendo la foto…');
+    if (!ev._srv) return linea('', 'IA: se leerá cuando la foto llegue al servidor.');
+    if ((est && est.estado === 'error') || (l && l.Estado === 'ERROR')) {
+      return linea('alerta', 'IA: no se pudo leer (' + esc((est && est.msg) || l.Error) + ').') +
+        (editable(p) || rol() !== 'OPERADOR' ? '<button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + ev.EvidenciaID + '">' + ic('refresh') + 'Reintentar</button>' : '');
+    }
+    if (!l) return editable(p) || rol() !== 'OPERADOR' ? '<button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + ev.EvidenciaID + '">' + ic('activity') + 'Leer con IA</button>' : '';
+    var r = R.resultadoIA(l) || {};
+    var t = ev.TipoEvidencia;
+    if (t === 'PARTE_FISICO_FIRMADO') {
+      return linea(l.Estado === 'CONFIRMADA' ? 'ok' : 'acento', 'IA leyó el parte de papel: ' + esc(l.Resumen) + (l.Estado === 'CONFIRMADA' ? ' · confirmado' : ' · revíselo abajo')) +
+        (/\/ia$/.test(location.hash) ? '' : '<a class="btn chico ' + (l.Estado === 'CONFIRMADA' ? '' : 'primario') + '" href="#/parte/' + p.ParteID + '/ia">' + (l.Estado === 'CONFIRMADA' ? 'Ver' : 'Revisar y confirmar') + '</a>');
+    }
+    if (t === 'ABASTECIMIENTO') {
+      return r.muestra_abastecimiento === false ? linea('alerta', 'IA: la foto no parece mostrar el abastecimiento. Tome otra donde se vea el equipo recibiendo combustible.')
+        : linea('ok', 'IA: se ve el abastecimiento' + (R.valorIA(r.codigo_equipo_visible) ? ' (equipo ' + esc(R.valorIA(r.codigo_equipo_visible)) + ')' : '') + '.');
+    }
+    var campo = t === 'CANTIDAD_ABASTECIDA' ? r.galones : r.lectura;
+    var v = R.valorIA(campo);
+    var unidad = t === 'CANTIDAD_ABASTECIDA' ? ' gal' : (t.indexOf('ODOMETRO') === 0 ? ' km' : ' h');
+    if (r.es_instrumento_correcto === false) return linea('alerta', 'IA: la foto no parece mostrar el instrumento correcto. Tome otra foto.');
+    if (v === null) return linea('alerta', 'IA: ' + (campo && campo.confianza === 'BAJA' ? 'lectura dudosa (' + esc(campo.texto || campo.valor) + ')' : 'no se ve con claridad') + '. Verifique el valor o tome otra foto.');
+    var actual, tol, boton = '';
+    if (t === 'CANTIDAD_ABASTECIDA') {
+      var ab = N.fila('ABASTECIMIENTOS', extra && extra.AbastecimientoID) || {};
+      actual = R.num(ab.Galones); tol = Number(cfg().TOL_IA_GALONES || 0.5);
+      if (actual === null || Math.abs(actual - v) > tol) boton = editable(p) ? '<button type="button" class="btn chico" data-a="iaGalones" data-k="' + ab.AbastecimientoID + '" data-v="' + v + '">Usar ' + n1(v) + ' gal</button>' : '';
+    } else if (CAMPO_TIPO[t]) {
+      actual = R.num(p[CAMPO_TIPO[t]]); tol = Number(t.indexOf('ODOMETRO') === 0 ? cfg().TOL_IA_ODOMETRO_KM || 1 : cfg().TOL_IA_HOROMETRO_H || 0.2);
+      if (editable(p) && /\/paso\/3/.test(location.hash)) boton = '<button type="button" class="btn chico" data-a="iaUsar" data-campo="' + CAMPO_TIPO[t] + '" data-v="' + v + '">Usar ' + n1(v) + '</button>';
+    }
+    var dif = actual !== null && actual !== undefined && Math.abs(actual - v) > tol;
+    return linea(dif ? 'peligro' : 'ok', 'IA leyó <strong class="num">' + n1(v) + unidad + '</strong> ' + chipConf(campo) +
+      (dif ? ' · <strong>no coincide con lo registrado (' + n1(actual) + ')</strong>' : '')) + boton;
   }
   function galeria(ev) {
     if (!ev.length) return '<div class="vacio">' + ic('image') + '<p>Sin fotos.</p></div>';
@@ -511,8 +602,14 @@
       N.leerFoto(el.getAttribute('data-foto')).then(function (d) { if (d) { el.style.backgroundImage = 'url(' + d + ')'; el.querySelector('svg') && el.querySelector('svg').remove(); } });
     });
   }
-  /** Reduce la foto a 1280 px, le pone sello (AXION · parte · fecha) y la devuelve en JPEG. */
-  function comprimir(file, sello) {
+  /**
+   * Reduce la foto, le pone sello (AXION · parte · fecha) y la devuelve en JPEG.
+   * El parte de papel y los instrumentos se guardan con más detalle para que la IA lea la letra y los dígitos.
+   */
+  var CALIDAD_FOTO = { PARTE_FISICO_FIRMADO: [2000, 0.82], HOROMETRO_INICIAL: [1600, 0.75], HOROMETRO_FINAL: [1600, 0.75],
+    ODOMETRO_INICIAL: [1600, 0.75], ODOMETRO_FINAL: [1600, 0.75], HOROMETRO_ABASTECIMIENTO: [1600, 0.75], CANTIDAD_ABASTECIDA: [1600, 0.75] };
+  function comprimir(file, sello, tipo) {
+    var cal = CALIDAD_FOTO[tipo] || [1280, 0.6];
     var cargar = function () {
       // createImageBitmap respeta la orientación EXIF y lee más formatos; si no existe, se usa <img>
       if (window.createImageBitmap) {
@@ -528,17 +625,20 @@
     return cargar().then(function (img) {
       var w = img.width, h = img.height;
       if (!w || !h) throw new Error('x');
-      var k = Math.min(1, 1280 / Math.max(w, h));
+      var k = Math.min(1, cal[0] / Math.max(w, h));
       var c = document.createElement('canvas');
       c.width = Math.round(w * k); c.height = Math.round(h * k);
       var g = c.getContext('2d');
       g.drawImage(img, 0, 0, c.width, c.height);
       if (img.close) img.close();
-      var fs = Math.max(14, Math.round(c.width / 45));
-      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, c.height - fs * 1.8, c.width, fs * 1.8);
-      g.fillStyle = '#FF6B00'; g.font = 'bold ' + fs + 'px sans-serif';
-      g.fillText(sello, fs * 0.6, c.height - fs * 0.6);
-      var url = c.toDataURL('image/jpeg', 0.6);
+      // sello angosto en la esquina inferior para no tapar la letra del parte
+      var fs = Math.max(12, Math.round(c.width / 60));
+      g.font = 'bold ' + fs + 'px sans-serif';
+      var ancho = Math.min(c.width, g.measureText(sello).width + fs * 1.2);
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(c.width - ancho, c.height - fs * 1.6, ancho, fs * 1.6);
+      g.fillStyle = '#FF6B00';
+      g.fillText(sello, c.width - ancho + fs * 0.6, c.height - fs * 0.5);
+      var url = c.toDataURL('image/jpeg', cal[1]);
       if (url.indexOf('data:image/jpeg') !== 0) throw new Error('x');
       return url;
     }).catch(function () {
@@ -642,7 +742,7 @@
       (eq.TieneHorometro ? campo('Horómetro al abastecer', '<input name="HorometroAbastecimiento" type="number" inputmode="decimal" step="0.1" value="' + esc(p.HorometroInicial) + '">', true) : '') +
       (eq.TieneOdometro ? campo('Odómetro al abastecer', '<input name="OdometroAbastecimiento" type="number" inputmode="decimal">') : '') +
       campo('Galones', '<input name="Galones" type="number" inputmode="decimal" min="0" step="0.1">', true) +
-      '<p class="mini">Después tome la foto del horómetro desde la tarjeta del abastecimiento.</p>',
+      '<p class="mini">Después tome las fotos desde la tarjeta del abastecimiento: el abastecimiento, la cantidad (surtidor o comprobante)' + (eq.TieneHorometro ? ' y el horómetro' : '') + '. La IA leerá los galones.</p>',
       function (v) {
         var h = R.num(v.HorometroAbastecimiento), g = R.num(v.Galones);
         if (eq.TieneHorometro && (h === null || h < Number(p.HorometroInicial) || (R.num(p.HorometroFinal) !== null && h > Number(p.HorometroFinal))))
@@ -650,7 +750,8 @@
         if (!(g > 0) || g > Number(cfg().MAX_GALONES_ABASTECIMIENTO || 300)) return 'Galones fuera de rango.';
         N.guardar('ABASTECIMIENTOS', { AbastecimientoID: N.nuevoID('ABA'), ParteID: parteID, EquipoID: p.EquipoID, FechaHora: R.isoLima(Date.now()),
           HorometroAbastecimiento: h === null ? '' : h, OdometroAbastecimiento: R.num(v.OdometroAbastecimiento) === null ? '' : R.num(v.OdometroAbastecimiento), Galones: g });
-        toast('Abastecimiento guardado: tome la foto del horómetro');
+        if (p.SinAbastecimiento === true) guardarParte(Object.assign({}, p, { SinAbastecimiento: false }));
+        toast('Abastecimiento guardado: tome las fotos');
       });
   }
 
@@ -682,6 +783,111 @@
         if (h === null || h < 0 || h > Number(turno(p.Turno).DuracionHoras)) return 'Horas entre 0 y ' + turno(p.Turno).DuracionHoras + '.';
         N.guardar('FALLAS_PARTES', { FallaParteID: N.nuevoID('FP'), FallaID: v.FallaID, ParteID: parteID, HorasParadaEnTurno: h });
       }, 'Vincular');
+  }
+
+  // ------------------------------------------------------------ parte de papel leído con IA
+  var iaSel = {};  // marcas del operador en la pantalla de revisión (sobreviven a los redibujos)
+  function marcaIA(nombre, porDefecto) { return nombre in iaSel ? iaSel[nombre] : porDefecto; }
+  var HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+  var UNIDADES = ['m3', 'm2', 't', 'km', 'viaje', 'gal', 'und', 'h'];
+  /** Actividad leída lista para registrar (o el motivo por el que hay que completarla a mano). */
+  function actividadIA(a, p) {
+    var c = catAct()[a.actividad_cat_id];
+    if (!c) return { falta: 'elija el tipo de actividad a mano' };
+    if (!HORA.test(a.hora_inicio || '') || !HORA.test(a.hora_fin || '')) return { falta: 'faltan horas legibles' };
+    var cant = R.num(a.cantidad);
+    if (c.RequiereCantidad && !(cant > 0)) return { falta: 'falta la cantidad' };
+    return { fila: { ActividadCatID: c.ActividadCatID, HoraInicio: a.hora_inicio, HoraFin: a.hora_fin, CantidadProducida: cant === null ? '' : cant,
+      Unidad: UNIDADES.indexOf(a.unidad) >= 0 ? a.unidad : (c.UnidadPredeterminada || ''), Descripcion: String(a.texto || '').substring(0, 250), FrenteID: p.FrenteID,
+      Observaciones: 'Leído por IA del parte de papel' + (a.frente ? ' · frente/ubicación: ' + a.frente : ''),
+      DuracionHoras: R.duracion(a.hora_inicio, a.hora_fin, turno(p.Turno).HoraInicio) } };
+  }
+  function viajeIA(v) {
+    var m = busca('MATERIALES', 'MaterialID', v.material_id);
+    if (!m.MaterialID) return { falta: 'elija el material a mano' };
+    if (!HORA.test(v.hora_salida || '') || !HORA.test(v.hora_llegada || '')) return { falta: 'faltan horas legibles' };
+    if (!v.origen || !v.destino) return { falta: 'falta origen o destino' };
+    if (!(R.num(v.cantidad) > 0)) return { falta: 'falta la cantidad' };
+    return { fila: { HoraSalida: v.hora_salida, HoraLlegada: v.hora_llegada, Origen: v.origen, Destino: v.destino, MaterialID: m.MaterialID,
+      Cantidad: R.num(v.cantidad), Unidad: m.UnidadPredeterminada, Observaciones: 'Leído por IA: ' + String(v.texto || '').substring(0, 200) } };
+  }
+
+  function vIA(id) {
+    var p = getParte(id);
+    if (!p) { location.replace('#/inicio'); return; }
+    var eq = equipo(p.EquipoID);
+    var puede = editable(p);
+    var evs = N.hijos('EVIDENCIAS', id).filter(function (e) { return e.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && !e._error; });
+    var ev = evs[evs.length - 1];
+    var l = ultimaLecturaParte(id);
+    var r = l ? R.resultadoIA(l) : null;
+    var abierta = puede && l && l.Estado === 'PROCESADA';
+    var h = '<p class="sub">Tome una foto de todo el parte de papel: de frente, con buena luz, sin sombras y que se vean los bordes. ' +
+      'La IA completa los datos; lo dudoso o ilegible queda marcado para que usted lo revise. Nada se registra hasta que usted confirme.</p>';
+    if (puede) h += '<div class="lista">' + botonFoto(p, 'PARTE_FISICO_FIRMADO', 'Foto del parte de papel') + '</div>';
+    if (ev) h += '<div class="fotos"><button type="button" class="foto" data-a="verFoto" data-k="' + ev.EvidenciaID + '" data-foto="' + ev.EvidenciaID + '" aria-label="Ver la foto del parte">' + ic('image') + '<span class="pie">Ver foto original</span></button></div>';
+    if (!N.iaLista() && !l) h += '<div class="aviso">' + ic('alert') + '<div>La lectura con IA aún no está activada. Registre los datos a mano.</div></div>';
+    if (r) {
+      var fila = function (et, c, app) {
+        var v = c ? (c.valor === null || c.valor === undefined ? '—' : c.valor) : '—';
+        return '<tr><th>' + et + '</th><td><strong class="' + (typeof v === 'number' ? 'num' : '') + '">' + esc(typeof v === 'number' ? n1(v) : v) + '</strong>' +
+          (c && c.texto && String(c.texto) !== String(v) ? '<div class="mini">Escrito: "' + esc(c.texto) + '"</div>' : '') +
+          (app !== undefined ? '<div class="mini">En la app: ' + esc(app) + '</div>' : '') + '</td><td>' + chipConf(c) + '</td></tr>';
+      };
+      h += listaHallazgos(hallazgosIA(p));
+      h += '<div class="etiqueta-seccion">Datos generales</div><div class="tarjeta"><table class="ia-tabla">' +
+        fila('Fecha', r.fecha, fF(p.FechaTrabajo)) + fila('Turno', r.turno, p.Turno) + fila('Equipo', r.codigo_equipo, eq.CodigoInterno) + fila('Operador', r.operador, nombreOp(p.OperadorID)) + '</table></div>';
+      var lect = [];
+      if (eq.TieneHorometro) lect.push(['HorometroInicial', 'horometro_inicial', 'Horómetro inicial'], ['HorometroFinal', 'horometro_final', 'Horómetro final']);
+      if (eq.TieneOdometro) lect.push(['OdometroInicial', 'odometro_inicial', 'Odómetro inicial'], ['OdometroFinal', 'odometro_final', 'Odómetro final']);
+      h += '<div class="etiqueta-seccion">Lecturas del parte de papel</div><div class="tarjeta"><table class="ia-tabla">' +
+        lect.map(function (x) { return fila(x[2], r[x[1]], R.num(p[x[0]]) === null ? 'vacío' : n1(p[x[0]])); }).join('') + '</table>' +
+        (abierta ? lect.map(function (x) {
+          var v = R.valorIA(r[x[1]]);
+          if (v === null || R.num(p[x[0]]) === Number(v)) return '';
+          var nom = 'lec_' + x[0];
+          return '<label class="check"><input type="checkbox" name="' + nom + '"' + (marcaIA(nom, R.num(p[x[0]]) === null && r[x[1]].confianza === 'ALTA') ? ' checked' : '') + '><span>Usar ' + x[2].toLowerCase() + ' del papel: <strong class="num">' + n1(v) + '</strong></span></label>';
+        }).join('') : '') + '</div>';
+      var acts = r.actividades || [];
+      h += '<div class="etiqueta-seccion">Actividades leídas (' + acts.length + ')</div><div class="lista">' + (acts.map(function (a, i) {
+        var x = actividadIA(a, p);
+        var c = catAct()[a.actividad_cat_id];
+        var nom = 'act_' + i;
+        var ok = !!x.fila && (a.confianza === 'ALTA' || a.confianza === 'MEDIA');
+        return '<div class="tarjeta"><div class="entre"><div class="crece"><div>' + esc(a.texto || '—') + '</div><div class="mini">' + esc(c ? c.Nombre : 'Sin tipo') + ' · ' +
+          esc(a.hora_inicio || '?') + '–' + esc(a.hora_fin || '?') + (a.cantidad !== null && a.cantidad !== undefined ? ' · ' + n1(a.cantidad) + ' ' + esc(a.unidad || '') : '') + (a.frente ? ' · ' + esc(a.frente) : '') + '</div>' +
+          (x.falta ? '<div class="mini">Complete a mano: ' + esc(x.falta) + '.</div>' : '') + '</div>' + chipConf(a) + '</div>' +
+          (abierta && x.fila ? '<label class="check"><input type="checkbox" name="' + nom + '"' + (marcaIA(nom, ok) ? ' checked' : '') + '><span>Registrar esta actividad</span></label>' : '') + '</div>';
+      }).join('') || '<div class="vacio"><p>No se leyeron actividades.</p></div>') + '</div>';
+      var vjs = r.viajes || [];
+      if (vjs.length) h += '<div class="etiqueta-seccion">Viajes leídos (' + vjs.length + ')</div><div class="lista">' + vjs.map(function (v, i) {
+        var x = viajeIA(v);
+        var nom = 'via_' + i;
+        return '<div class="tarjeta"><div class="entre"><div class="crece"><div>' + esc(v.texto || '—') + '</div><div class="mini">' + esc(v.hora_salida || '?') + '–' + esc(v.hora_llegada || '?') + ' · ' +
+          esc(v.origen || '?') + ' → ' + esc(v.destino || '?') + ' · ' + esc(busca('MATERIALES', 'MaterialID', v.material_id).Nombre || v.material_texto || '?') + ' · ' + n1(v.cantidad) + ' ' + esc(v.unidad || '') + '</div>' +
+          (x.falta ? '<div class="mini">Complete a mano: ' + esc(x.falta) + '.</div>' : '') + '</div>' + chipConf(v) + '</div>' +
+          (abierta && x.fila ? '<label class="check"><input type="checkbox" name="' + nom + '"' + (marcaIA(nom, v.confianza === 'ALTA' || v.confianza === 'MEDIA') ? ' checked' : '') + '><span>Registrar este viaje</span></label>' : '') + '</div>';
+      }).join('') + '</div>';
+      var nota = function (t, o, extra) {
+        if (!o || !o.texto) return '';
+        return '<div class="tarjeta"><div class="entre"><h3>' + t + '</h3>' + chipConf(o) + '</div><p class="sub">' + esc(o.texto) + '</p>' + (extra || '') + '</div>';
+      };
+      h += '<div class="etiqueta-seccion">Otras anotaciones</div>' +
+        nota('Volquetes', r.volquetes, r.volquetes && r.volquetes.cantidad !== null && r.volquetes.cantidad !== undefined ? '<div class="mini">Cantidad: ' + n1(r.volquetes.cantidad) + '</div>' : '') +
+        nota('Combustible', r.combustible, '<div class="mini">' + (r.combustible && R.num(r.combustible.galones) !== null ? 'Galones anotados: ' + n1(r.combustible.galones) + '. ' : '') + 'Regístrelo en el paso 5 con sus fotos.</div>') +
+        nota('Fallas (solo referencia)', r.fallas, puede ? '<button type="button" class="btn chico" data-a="iaFalla" data-id="' + id + '" data-l="' + l.LecturaID + '">' + ic('wrench') + 'Reportar la falla con este texto</button>' : '') +
+        nota('Observaciones', r.observaciones, abierta ? '<label class="check"><input type="checkbox" name="obs"' + (marcaIA('obs', !p.ObservacionOperador) ? ' checked' : '') + '><span>Copiar a mi comentario</span></label>' : '') +
+        ((r.no_reconocido || []).length ? '<div class="tarjeta"><h3>No se pudo leer</h3><ul class="sub">' + r.no_reconocido.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' : '') +
+        (r.comentario ? '<p class="mini">Nota de la IA: ' + esc(r.comentario) + ' · calidad de la foto: ' + esc(r.calidad_imagen || '') + '</p>' : '');
+      if (l.Estado === 'CONFIRMADA') h += '<div class="aviso">' + ic('checkc') + '<div>Confirmado por ' + esc(l.ConfirmadoPor || 'el operador') + (l.FechaConfirmacion ? ' el ' + fFH(l.FechaConfirmacion) : ' (por enviar)') + '.</div></div>';
+      if (abierta) h += '<button type="button" class="btn primario ancho" data-a="iaAplicar" data-id="' + id + '" data-l="' + l.LecturaID + '">' + ic('checkc') + 'Registrar lo marcado y confirmar</button>' +
+        '<button type="button" class="btn ancho" data-a="iaRepetir" data-ev="' + l.EvidenciaID + '">' + ic('refresh') + 'Volver a leer la foto</button>' +
+        '<p class="mini">Lo que no marque no se registra. Revise las actividades y lecturas en sus pasos antes de enviar.</p>';
+    }
+    marco('Parte de papel con IA', '<form id="fIA" novalidate style="display:grid;gap:16px">' + h + '</form>', { volver: puede ? '#/parte/' + id + '/paso/4' : '#/parte/' + id });
+    var f = document.getElementById('fIA');
+    f.onchange = function (e) { if (e.target.name) iaSel[e.target.name] = e.target.checked; };
+    hidratarFotos();
   }
 
   // ------------------------------------------------------------ detalle del parte (todos los roles)
@@ -716,6 +922,8 @@
       (lect.alertas.length || p.ExcepcionLectura ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Excepción de lectura</strong><div>' + esc(lect.alertas.join(' ')) + '</div>' +
         (p.ExcepcionLectura ? '<div class="sub">Excepción del operador: ' + esc(p.MotivoExcepcion) + (p.ExcepcionAutorizadaPor ? ' · aceptada por ' + esc(p.ExcepcionAutorizadaPor) : ' · sin aceptar') + '</div>' : '') + '</div></div>' : '') +
       (falt.length && p.Estado !== 'BORRADOR' ? '<div class="aviso peligro">' + ic('camera') + '<div>Faltan fotos: ' + esc(falt.join(', ')) + '</div></div>' : '') +
+      (p.Estado !== 'BORRADOR' && !N.hijos('ABASTECIMIENTOS', id).length && p.SinAbastecimiento === true ? '<div class="aviso">' + ic('fuel') + '<div>El operador declaró que no hubo abastecimiento.</div></div>' : '') +
+      seccionIA(p, ev) +
       (botones ? '<div class="acciones">' + botones + '</div>' : '') +
       '<div class="kpis"><div class="kpi"><div class="v num">' + n1(p.HorasTrabajadas) + '</div><div class="l">Horas horómetro</div></div>' +
       '<div class="kpi"><div class="v num">' + n1(acts.filter(function (a) { var t = (catAct()[a.ActividadCatID] || {}).TipoActividad; return t === 'PRODUCTIVA' || t === 'SERVICIO'; }).reduce(function (s, a) { return s + Number(a.DuracionHoras || 0); }, 0)) + '</div><div class="l">Horas productivas</div></div>' +
@@ -742,6 +950,18 @@
           (r.Comentario ? '<div class="sub">' + esc(r.Comentario) + '</div>' : '') + '</div></div>';
       }).join('') || '<p class="mini">Sin movimientos.</p>') + '</div>';
     marco(p.CodigoParte || 'Parte', cuerpo, { volver: rol() === 'OPERADOR' ? '#/partes' : '#/revisar' });
+  }
+
+  /** Resumen de la IA en el detalle: diferencias encontradas y lo leído en cada foto (para el revisor). */
+  function seccionIA(p, ev) {
+    var conIA = ev.filter(function (e) { return N.IA_TIPOS.indexOf(e.TipoEvidencia) >= 0 && !e._error; });
+    if (!conIA.length) return '';
+    var nombres = { PARTE_FISICO_FIRMADO: 'Parte de papel', HOROMETRO_INICIAL: 'Horómetro inicial', HOROMETRO_FINAL: 'Horómetro final', ODOMETRO_INICIAL: 'Odómetro inicial',
+      ODOMETRO_FINAL: 'Odómetro final', HOROMETRO_ABASTECIMIENTO: 'Horómetro al abastecer', ABASTECIMIENTO: 'Abastecimiento', CANTIDAD_ABASTECIDA: 'Cantidad abastecida' };
+    return '<div class="etiqueta-seccion">Lectura con IA</div>' + listaHallazgos(hallazgosIA(p)) +
+      '<div class="tarjeta lista">' + conIA.map(function (e) {
+        return '<div class="foto-req" style="flex-wrap:wrap">' + ic('image') + '<span class="crece">' + esc(nombres[e.TipoEvidencia]) + '</span>' + cajaIA(p, e, { AbastecimientoID: e.AbastecimientoID }) + '</div>';
+      }).join('') + '</div>';
   }
 
   function flujo(id, acc) {
@@ -908,6 +1128,85 @@
     borrar: function (b) {
       confirmar('Eliminar', '¿Eliminar este registro del parte?', 'Eliminar', true).then(function (si) { if (si) { N.eliminar(b.dataset.t, b.dataset.k); render(); } });
     },
+    iaRepetir: function (b) {
+      if (!navigator.onLine) { toast('Sin señal: la IA leerá la foto cuando haya conexión.'); return; }
+      N.leerIA(b.dataset.ev, true);
+      toast('La IA está leyendo la foto…');
+    },
+    iaUsar: function (b) {
+      var el = document.querySelector('#fPaso [name="' + b.dataset.campo + '"]');
+      if (!el) return;
+      el.value = b.dataset.v;
+      var m = location.hash.match(/#\/parte\/([^/]+)\//);
+      if (m) vivo(getParte(m[1]), 3);
+      respaldarEscrito();
+      toast('Valor copiado. Revíselo y pulse "Guardar y seguir".');
+    },
+    iaGalones: function (b) {
+      var ab = N.fila('ABASTECIMIENTOS', b.dataset.k);
+      if (!ab) return;
+      confirmar('Usar galones leídos', 'Se cambiará la cantidad de ' + n1(ab.Galones) + ' a ' + n1(b.dataset.v) + ' galones.', 'Cambiar').then(function (si) {
+        if (!si) return;
+        N.guardar('ABASTECIMIENTOS', { AbastecimientoID: ab.AbastecimientoID, ParteID: ab.ParteID, Galones: Number(b.dataset.v) });
+        render();
+      });
+    },
+    sinAbast: function (b) {
+      var p = getParte(b.dataset.id);
+      guardarParte(Object.assign({}, p, { SinAbastecimiento: p.SinAbastecimiento !== true }));
+      render();
+    },
+    iaFalla: function (b) {
+      var r = R.resultadoIA(N.fila('LECTURAS_IA', b.dataset.l)) || {};
+      formFalla(b.dataset.id);
+      var d = dlg.querySelector('[name="Descripcion"]');
+      if (d && r.fallas) d.value = r.fallas.texto || '';
+    },
+    iaAplicar: function (b) {
+      var id = b.dataset.id;
+      var l = N.fila('LECTURAS_IA', b.dataset.l);
+      var r = R.resultadoIA(l);
+      var p = Object.assign({}, getParte(id));
+      if (!r || !editable(p)) return;
+      var marca = function (n) { var el = document.querySelector('#fIA [name="' + n + '"]'); return !!(el && el.checked); };
+      var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [] };
+      ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
+        var c = r[k.replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()];
+        if (marca('lec_' + k) && R.valorIA(c) !== null) { ap.lecturas[k] = { antes: p[k], ahora: Number(R.valorIA(c)) }; p[k] = Number(R.valorIA(c)); }
+      });
+      if (R.num(p.HorometroInicial) !== null && R.num(p.HorometroFinal) !== null) p.HorasTrabajadas = Math.round((p.HorometroFinal - p.HorometroInicial) * 100) / 100;
+      if (R.num(p.OdometroInicial) !== null && R.num(p.OdometroFinal) !== null) p.KmRecorridos = Math.round((p.OdometroFinal - p.OdometroInicial) * 100) / 100;
+      if (marca('obs') && r.observaciones && r.observaciones.texto) {
+        p.ObservacionOperador = (p.ObservacionOperador ? p.ObservacionOperador + '\n' : '') + 'Parte de papel: ' + r.observaciones.texto;
+        ap.observaciones = true;
+      }
+      if (Object.keys(ap.lecturas).length || ap.observaciones) guardarParte(p);
+      var t = turno(p.Turno);
+      var acts = N.hijos('ACTIVIDADES', id);
+      (r.actividades || []).forEach(function (a, i) {
+        if (!marca('act_' + i)) return;
+        var x = actividadIA(a, p);
+        var fila = Object.assign({ ActividadID: N.nuevoID('ACT'), ParteID: id }, x.fila);
+        var al = R.alertasActividades(acts.concat([fila]), t, catAct(), cfg())[fila.ActividadID];
+        if (al && al !== 'Falta la cantidad producida') { ap.omitidos.push('Actividad ' + (i + 1) + ': ' + al); return; }
+        N.guardar('ACTIVIDADES', fila);
+        acts.push(fila);
+        ap.actividades.push({ indice: i, ActividadID: fila.ActividadID });
+      });
+      var nro = N.hijos('VIAJES', id).reduce(function (m, v) { return Math.max(m, Number(v.NumeroViaje) || 0); }, 0);
+      (r.viajes || []).forEach(function (v, i) {
+        if (!marca('via_' + i)) return;
+        var x = viajeIA(v);
+        if (R.relFin(x.fila.HoraLlegada, t.HoraInicio) <= R.relInicio(x.fila.HoraSalida, t.HoraInicio)) { ap.omitidos.push('Viaje ' + (i + 1) + ': la llegada no es posterior a la salida'); return; }
+        var fila = Object.assign({ ViajeID: N.nuevoID('VIA'), ParteID: id, NumeroViaje: ++nro }, x.fila);
+        N.guardar('VIAJES', fila);
+        ap.viajes.push({ indice: i, ViajeID: fila.ViajeID });
+      });
+      N.guardar('LECTURAS_IA', { LecturaID: l.LecturaID, ParteID: id, Estado: 'CONFIRMADA', Aplicado: JSON.stringify(ap) });
+      iaSel = {};
+      toast('Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' + (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : ''));
+      location.hash = '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4);
+    },
     borrarParte: function (b) {
       var p = getParte(b.dataset.id);
       if (!borrable(p)) { toast('Este parte ya no se puede eliminar.'); return; }
@@ -977,7 +1276,7 @@
     if (!p) { toast('El parte ya no está en este celular. Vuelva a abrirlo y tome la foto otra vez.'); return; }
     var sello = 'AXION · ' + (p.CodigoParte || '') + ' · ' + fF(R.enLima(Date.now()).fecha) + ' ' + R.enLima(Date.now()).hora;
     toast('Procesando foto…');
-    comprimir(file, sello).then(function (url) { return N.foto(meta, url); })
+    comprimir(file, sello, meta.TipoEvidencia).then(function (url) { return N.foto(meta, url); })
       .then(function () { toast('Foto guardada'); render(); }, function (err) { toast(err.message); });
   }
   document.getElementById('camara').addEventListener('change', alElegirFoto);
@@ -1039,6 +1338,7 @@
     var esOp = rol() === 'OPERADOR';
     if (r[1] === 'parte' && r[2] === 'nuevo') { if (esOp) nuevoParte(q); else location.replace('#/revisar'); return; }
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
+    if (r[1] === 'parte' && r[3] === 'ia') return vIA(r[2]);
     if (r[1] === 'parte' && r[2]) return vDetalle(r[2]);
     if (r[1] === 'falla' && r[2]) return vFalla(r[2]);
     if (r[1] === 'partes' && esOp) return vMisPartes();
@@ -1063,7 +1363,7 @@
     clearTimeout(tRender);
     tRender = setTimeout(function () {
       // en el formulario no se redibuja: se perdería lo escrito y aún no guardado
-      if (document.getElementById('fPaso') || dlg.open) { refrescarChip(); return; }
+      if (document.getElementById('fPaso') || dlg.open) { refrescarChip(); refrescarIA(); return; }
       render();
     }, 120);
   });

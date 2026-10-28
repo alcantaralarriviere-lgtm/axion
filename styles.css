@@ -92,6 +92,22 @@ h3 { font-size: 16px; margin: 0; font-weight: 600; }
 .estado.ok { background: rgba(52, 199, 89, .14); color: #7BE08F; }
 .estado.anulado { text-decoration: line-through; color: var(--texto-3); }
 .estado.peligro { background: rgba(255, 69, 58, .16); color: #FF8A82; }
+.estado.duda { background: rgba(255, 214, 10, .16); color: #FFD60A; }
+/* lectura con IA */
+.ia-caja { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ia-caja:empty { display: none; }
+.ia-linea { flex: 1 1 100%; display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--texto-2); }
+.ia-linea svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.ia-linea.ok { color: #7BE08F; }
+.ia-linea.alerta, .ia-linea.acento { color: #FFB37A; }
+.ia-linea.peligro { color: #FF8A82; }
+.ia-chip { font-size: 11px; padding: 2px 8px; vertical-align: middle; }
+.ia-tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ia-tabla th, .ia-tabla td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--borde); vertical-align: top; overflow-wrap: anywhere; }
+.ia-tabla tr:last-child th, .ia-tabla tr:last-child td { border-bottom: 0; }
+.ia-tabla th { color: var(--texto-2); font-weight: 600; }
+.ia-tabla tr > th:first-child { white-space: nowrap; width: 1%; padding-right: 10px; overflow-wrap: normal; }
+.ia-tabla td:last-child { width: 1%; white-space: nowrap; text-align: right; }
 
 /* ---------- KPIs */
 .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
