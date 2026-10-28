@@ -183,7 +183,7 @@
       var delTurno = mis.filter(function (a) { return a.Turno === tu; });
       if (hecho) {
         return '<div class="etiqueta-seccion">' + esc(turno(tu).Nombre || tu) + ' · ' + fF(fecha) + '</div>' + tarjetaParte(hecho) +
-          (editable(hecho) ? '<a class="btn primario ancho" href="#/parte/' + hecho.ParteID + '/paso/3">' + ic('edit') + 'Continuar parte</a>' : '') +
+          (editable(hecho) ? '<a class="btn primario ancho" href="' + rutaParte(hecho.ParteID, 2) + '">' + ic('edit') + 'Continuar parte</a>' : '') +
           botonBorrarParte(hecho);
       }
       if (delTurno.length <= 2) return delTurno.map(function (a) { return tarjetaAsignacion(a, fecha, tu === pr.turno); }).join('');
@@ -202,7 +202,7 @@
         '<div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3><div class="sub">' + esc(nombreObra(a.ObraID)) + ' · ' + esc(turno(a.Turno).Nombre || a.Turno) + '</div>' +
         '<div class="mini">Fecha de trabajo ' + fF(fecha) + '</div></div>' + (p ? chip(p) : '') + '</div>' +
         '<div class="acciones" style="margin-top:12px">' + (p
-          ? '<a class="btn ' + (editable(p) ? 'primario' : '') + ' ancho" href="#/parte/' + p.ParteID + (editable(p) ? '/paso/3' : '') + '">' + (editable(p) ? ic('edit') + 'Continuar parte' : ic('right') + 'Ver parte') + '</a>' + botonBorrarParte(p)
+          ? '<a class="btn ' + (editable(p) ? 'primario' : '') + ' ancho" href="' + (editable(p) ? rutaParte(p.ParteID, 2) : '#/parte/' + p.ParteID) + '">' + (editable(p) ? ic('edit') + 'Continuar parte' : ic('right') + 'Ver parte') + '</a>' + botonBorrarParte(p)
           : '<a class="btn ' + (actual ? 'primario' : '') + ' ancho" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + fecha + '">' + ic('plus') + 'Iniciar parte</a>') + '</div></article>';
     }
     var obs = N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === perfil().OperadorID; });
@@ -252,7 +252,7 @@
     var id = N.nuevoID('PD');
     tmp[id] = { ParteID: id, OperadorID: perfil().OperadorID, FechaTrabajo: q.fecha || pr.fecha, Turno: a ? a.Turno : pr.turno,
       AsignacionID: a ? a.AsignacionID : '', FrenteID: a ? a.FrenteID : '', FechaCreacion: R.isoLima(Date.now()), Estado: '' };
-    location.replace('#/parte/' + id + '/paso/1');
+    location.replace(rutaParte(id, 1));
   }
 
   function guardarParte(p) {
@@ -269,6 +269,7 @@
     var p = getParte(id);
     if (!p) { location.replace('#/inicio'); return; }
     if (p.Estado && !editable(p)) { location.replace('#/parte/' + id); return; }
+    modo('detallado');
     paso = Math.max(1, Math.min(8, paso));
     if (paso > 2 && !p.AsignacionID) paso = 2;
     var cuerpo = '<div class="progreso"><div class="entre"><span class="sub">Paso ' + paso + ' de 8</span><span class="codigo">' + esc(p.CodigoParte || 'Parte nuevo') + '</span></div>' +
@@ -280,6 +281,7 @@
     var pie = '<div class="pie-asistente">' + (paso > 1 ? '<button class="btn" data-a="pasoAnt" data-id="' + id + '" data-p="' + paso + '">' + ic('left') + 'Atrás</button>' : '<a class="btn" href="#/inicio">Salir</a>') +
       (paso < 8 ? '<button class="btn primario" data-a="pasoSig" data-id="' + id + '" data-p="' + paso + '">Guardar y seguir' + ic('right') + '</button>'
         : '<button class="btn primario" data-a="enviar" data-id="' + id + '"' + (puedeEnviar(p).ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'Enviar parte') + '</button>') + '</div>';
+    cuerpo += p.AsignacionID ? '<p class="mini" style="text-align:center"><a href="#/parte/' + id + '/rapido/' + (paso <= 2 ? 1 : paso <= 5 ? 2 : 3) + '" data-a="rapidoModo">Volver al modo rápido (3 pasos)</a></p>' : '';
     marco(p.CodigoParte || 'Nuevo parte', cuerpo, { volver: '#/inicio', pie: pie });
     var f = document.getElementById('fPaso');
     f.oninput = function (e) { if (e.target.name) { vivo(p, paso); respaldarEscrito(); } };
@@ -363,28 +365,7 @@
         '<button type="button" class="btn ancho" data-a="actForm" data-id="' + p.ParteID + '">' + ic('plus') + 'Agregar actividad</button>' +
         '<p class="mini">Horas productivas registradas: <strong class="num">' + n1(prod) + ' h</strong></p>';
     },
-    5: function (p) {
-      var eq = equipo(p.EquipoID);
-      var vs = N.hijos('VIAJES', p.ParteID).sort(function (a, b) { return a.NumeroViaje - b.NumeroViaje; });
-      var abs = N.hijos('ABASTECIMIENTOS', p.ParteID);
-      var conViajes = ['VOLQUETE', 'CISTERNA'].indexOf(eq.Familia) >= 0 || vs.length;
-      var tot = vs.reduce(function (s, v) { return s + Number(v.Cantidad || 0); }, 0);
-      return (conViajes ? '<div class="etiqueta-seccion">Viajes (' + vs.length + ' · ' + n1(tot) + ' ' + esc((vs[0] || {}).Unidad || 'm3') + ')</div><div class="lista">' + vs.map(function (v) {
-        return '<div class="tarjeta"><div class="entre"><div><h3>Viaje ' + v.NumeroViaje + '</h3><div class="mini num">' + v.HoraSalida + '–' + v.HoraLlegada + ' · ' + esc(v.Origen) + ' → ' + esc(v.Destino) + ' · ' + n1(v.Cantidad) + ' ' + esc(v.Unidad) + '</div>' + (v._error ? '<div class="msg-error">' + esc(v._error) + '</div>' : '') + '</div>' +
-          '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="VIAJES" data-k="' + v.ViajeID + '" aria-label="Eliminar viaje">' + ic('trash') + '</button></div></div>';
-      }).join('') + '</div><button type="button" class="btn ancho" data-a="viajeForm" data-id="' + p.ParteID + '">' + ic('truck') + 'Agregar viaje</button>' : '<p class="sub">Este equipo no registra viajes; su producción va en Actividades.</p>') +
-        '<div class="etiqueta-seccion">Abastecimiento de combustible</div><div class="lista">' + abs.map(function (x) {
-          return '<div class="tarjeta"><div class="entre"><div><h3>' + n1(x.Galones) + ' gal</h3><div class="mini">' + fFH(x.FechaHora) + (x.HorometroAbastecimiento !== '' ? ' · horómetro ' + n1(x.HorometroAbastecimiento) : '') + '</div>' + (x._error ? '<div class="msg-error">' + esc(x._error) + '</div>' : '') + '</div>' +
-            '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="ABASTECIMIENTOS" data-k="' + x.AbastecimientoID + '" aria-label="Eliminar abastecimiento">' + ic('trash') + '</button></div>' +
-            '<div class="lista" style="margin-top:10px">' +
-            botonFoto(p, 'ABASTECIMIENTO', 'Foto del abastecimiento (que se vea el equipo)', { AbastecimientoID: x.AbastecimientoID }) +
-            botonFoto(p, 'CANTIDAD_ABASTECIDA', 'Foto de la cantidad (surtidor, comprobante o medidor)', { AbastecimientoID: x.AbastecimientoID }) +
-            (eq.TieneHorometro ? botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) : '') + '</div></div>';
-        }).join('') + '</div>' +
-        (abs.length ? '' : '<label class="check tarjeta"><input type="checkbox" data-a="sinAbast" data-id="' + p.ParteID + '"' + (p.SinAbastecimiento === true ? ' checked' : '') + '>' +
-          '<span><strong>Hoy no hubo abastecimiento</strong><span class="sub" style="display:block">Márquelo para que la falta de fotos de combustible no cuente como omisión.</span></span></label>') +
-        '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
-    },
+    5: function (p) { return seccionViajes(p, true) + seccionCombustible(p); },
     6: function (p) {
       var fs = N.filas('FALLAS', function (f) { return f.ParteID === p.ParteID; });
       var vinc = N.hijos('FALLAS_PARTES', p.ParteID).filter(function (v) { var f = N.fila('FALLAS', v.FallaID); return f && f.ParteID !== p.ParteID; });
@@ -436,6 +417,98 @@
         '<p class="mini">Sin señal también puede enviar: quedará como "pendiente de sincronización" hasta que haya conexión. Recién entonces cuenta como recibido.</p>';
     }
   };
+
+  /** Viajes del parte (volquetes y cisternas). conAviso: muestra la nota cuando el equipo no registra viajes. */
+  function seccionViajes(p, conAviso) {
+    var eq = equipo(p.EquipoID);
+    var vs = N.hijos('VIAJES', p.ParteID).sort(function (a, b) { return a.NumeroViaje - b.NumeroViaje; });
+    var conViajes = ['VOLQUETE', 'CISTERNA'].indexOf(eq.Familia) >= 0 || vs.length;
+    if (!conViajes) return conAviso ? '<p class="sub">Este equipo no registra viajes; su producción va en Actividades.</p>' : '';
+    var tot = vs.reduce(function (s, v) { return s + Number(v.Cantidad || 0); }, 0);
+    return '<div class="etiqueta-seccion">Viajes (' + vs.length + ' · ' + n1(tot) + ' ' + esc((vs[0] || {}).Unidad || 'm3') + ')</div><div class="lista">' + vs.map(function (v) {
+      return '<div class="tarjeta"><div class="entre"><div><h3>Viaje ' + v.NumeroViaje + '</h3><div class="mini num">' + v.HoraSalida + '–' + v.HoraLlegada + ' · ' + esc(v.Origen) + ' → ' + esc(v.Destino) + ' · ' + n1(v.Cantidad) + ' ' + esc(v.Unidad) + '</div>' + (v._error ? '<div class="msg-error">' + esc(v._error) + '</div>' : '') + '</div>' +
+        '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="VIAJES" data-k="' + v.ViajeID + '" aria-label="Eliminar viaje">' + ic('trash') + '</button></div></div>';
+    }).join('') + '</div><button type="button" class="btn ancho" data-a="viajeForm" data-id="' + p.ParteID + '">' + ic('truck') + 'Agregar viaje</button>';
+  }
+  /** Abastecimientos con sus 3 fotos, o la declaración "no hubo abastecimiento". */
+  function seccionCombustible(p) {
+    var eq = equipo(p.EquipoID);
+    var abs = N.hijos('ABASTECIMIENTOS', p.ParteID);
+    return '<div class="etiqueta-seccion">Abastecimiento de combustible</div><div class="lista">' + abs.map(function (x) {
+      return '<div class="tarjeta"><div class="entre"><div><h3>' + n1(x.Galones) + ' gal</h3><div class="mini">' + fFH(x.FechaHora) + (x.HorometroAbastecimiento !== '' ? ' · horómetro ' + n1(x.HorometroAbastecimiento) : '') + '</div>' + (x._error ? '<div class="msg-error">' + esc(x._error) + '</div>' : '') + '</div>' +
+        '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="ABASTECIMIENTOS" data-k="' + x.AbastecimientoID + '" aria-label="Eliminar abastecimiento">' + ic('trash') + '</button></div>' +
+        '<div class="lista" style="margin-top:10px">' +
+        botonFoto(p, 'ABASTECIMIENTO', 'Foto del abastecimiento (que se vea el equipo)', { AbastecimientoID: x.AbastecimientoID }) +
+        botonFoto(p, 'CANTIDAD_ABASTECIDA', 'Foto de la cantidad (surtidor, comprobante o medidor)', { AbastecimientoID: x.AbastecimientoID }) +
+        (eq.TieneHorometro ? botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) : '') + '</div></div>';
+    }).join('') + '</div>' +
+      (abs.length ? '' : '<label class="check tarjeta"><input type="checkbox" data-a="sinAbast" data-id="' + p.ParteID + '"' + (p.SinAbastecimiento === true ? ' checked' : '') + '>' +
+        '<span><strong>Hoy no hubo abastecimiento</strong><span class="sub" style="display:block">Márquelo para que la falta de fotos de combustible no cuente como omisión.</span></span></label>') +
+      '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
+  }
+
+  // ------------------------------------------------------------ modo rápido (3 pasos, con IA)
+  var RAPIDO = ['Equipo y turno', 'Fotos y lecturas', 'Revisar y enviar'];
+  var eleccion = {};  // fecha/turno elegidos en el paso 1 antes de guardar (para redibujar los equipos)
+  function modo(m) { try { if (m) sessionStorage.setItem('axion_modo', m); return sessionStorage.getItem('axion_modo') || 'rapido'; } catch (x) { return 'rapido'; } }
+  function rutaParte(id, n) { return modo() === 'detallado' ? '#/parte/' + id + '/paso/' + ({ 1: 1, 2: 3, 3: 8 }[n] || 4) : '#/parte/' + id + '/rapido/' + n; }
+
+  var RAP = {
+    1: function (p) { return PASO[1](p) + PASO[2](p); },
+    2: function (p) {
+      return '<div class="etiqueta-seccion">Parte de papel</div><p class="sub">Tómele foto al parte de papel: la IA llenará actividades, viajes y observaciones (tarda 1 o 2 minutos; puede seguir mientras tanto).</p>' +
+        '<div class="lista">' + botonFoto(p, 'PARTE_FISICO_FIRMADO', 'Foto del parte de papel') + '</div>' +
+        '<div class="etiqueta-seccion">Lecturas</div>' + PASO[3](p) + seccionCombustible(p);
+    },
+    3: function (p) {
+      return PASO[4](p) + seccionViajes(p, false) + '<div class="etiqueta-seccion">Fallas mecánicas</div>' + PASO[6](p) +
+        '<div class="etiqueta-seccion">Resumen</div>' + PASO[8](p);
+    }
+  };
+
+  function vRapido(id, n) {
+    var p = getParte(id);
+    if (!p) { location.replace('#/inicio'); return; }
+    if (p.Estado && !editable(p)) { location.replace('#/parte/' + id); return; }
+    modo('rapido');
+    n = Math.max(1, Math.min(3, n));
+    if (n > 1 && !p.AsignacionID) n = 1;
+    var pv = n === 1 && eleccion[id] ? Object.assign({}, p, eleccion[id]) : p;
+    var cuerpo = '<div class="progreso"><div class="entre"><span class="sub">Paso ' + n + ' de 3</span><span class="codigo">' + esc(p.CodigoParte || 'Parte nuevo') + '</span></div>' +
+      '<div class="barra" role="progressbar" aria-valuemin="1" aria-valuemax="3" aria-valuenow="' + n + '"><i style="width:' + Math.round(n * 100 / 3) + '%"></i></div>' +
+      '<div class="pasos">' + RAPIDO.map(function (t, i) {
+        return '<button type="button" data-a="ir" data-h="#/parte/' + id + '/rapido/' + (i + 1) + '"' + (i + 1 === n ? ' aria-current="step"' : '') + (i + 1 < n ? ' class="hecho"' : '') + (i > 0 && !p.AsignacionID ? ' disabled' : '') + '>' + (i + 1) + '. ' + t + '</button>';
+      }).join('') + '</div></div>' +
+      '<h1>' + RAPIDO[n - 1] + '</h1><form id="fPaso" novalidate style="display:grid;gap:16px">' + RAP[n](pv) + '</form>' +
+      (p.AsignacionID ? '<p class="mini" style="text-align:center"><a href="#/parte/' + id + '/paso/' + ({ 1: 1, 2: 3, 3: 4 }[n]) + '" data-a="detallado">Usar el modo detallado (8 pasos)</a></p>' : '');
+    var pie = '<div class="pie-asistente">' + (n > 1 ? '<button class="btn" data-a="rapAnt" data-id="' + id + '" data-p="' + n + '">' + ic('left') + 'Atrás</button>' : '<a class="btn" href="#/inicio">Salir</a>') +
+      (n < 3 ? '<button class="btn primario" data-a="rapSig" data-id="' + id + '" data-p="' + n + '">Guardar y seguir' + ic('right') + '</button>'
+        : '<button class="btn primario" data-a="enviar" data-id="' + id + '"' + (puedeEnviar(p).ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'Enviar parte') + '</button>') + '</div>';
+    marco(p.CodigoParte || 'Nuevo parte', cuerpo, { volver: '#/inicio', pie: pie });
+    var f = document.getElementById('fPaso');
+    f.oninput = function (e) { if (e.target.name) { if (n === 2) vivo(p, 3); respaldarEscrito(); } };
+    f.onchange = function (e) {
+      if (n === 1 && e.target.name === 'FechaTrabajo' && !e.target.disabled) {
+        eleccion[id] = Object.assign({}, eleccion[id], { FechaTrabajo: e.target.value, AsignacionID: '' });
+        render();
+        return;
+      }
+      respaldarEscrito();
+    };
+    if (n === 2) setTimeout(function () { vivo(p, 3); }, 0);
+  }
+  /** Guarda el paso del modo rápido con las mismas validaciones del modo detallado. */
+  function guardarRapido(id, n) {
+    if (n === 1) {
+      var e1 = guardarPaso(id, 1);
+      if (e1) return e1;
+      var e2 = guardarPaso(id, 2);
+      if (!e2) delete eleccion[id];
+      return e2;
+    }
+    if (n === 2) return guardarPaso(id, 3);
+    return guardarPaso(id, 8);
+  }
 
   function puedeEnviar(p) {
     if (!p.AsignacionID) return { ok: false, faltan: ['Elija el equipo.'] };
@@ -565,7 +638,7 @@
     var r = R.resultadoIA(l) || {};
     var t = ev.TipoEvidencia;
     if (t === 'PARTE_FISICO_FIRMADO') {
-      return linea(l.Estado === 'CONFIRMADA' ? 'ok' : 'acento', 'IA leyó el parte de papel: ' + esc(l.Resumen) + (l.Estado === 'CONFIRMADA' ? ' · confirmado' : ' · revíselo abajo')) +
+      return linea(l.Estado === 'CONFIRMADA' ? 'ok' : 'acento', 'IA leyó el parte de papel: ' + esc(l.Resumen) + (l.Estado === 'CONFIRMADA' ? ' · confirmado' : /\/ia$/.test(location.hash) ? ' · revíselo abajo' : ' · falta revisar')) +
         (/\/ia$/.test(location.hash) ? '' : '<a class="btn chico ' + (l.Estado === 'CONFIRMADA' ? '' : 'primario') + '" href="#/parte/' + p.ParteID + '/ia">' + (l.Estado === 'CONFIRMADA' ? 'Ver' : 'Revisar y confirmar') + '</a>');
     }
     if (t === 'ABASTECIMIENTO') {
@@ -584,7 +657,7 @@
       if (actual === null || Math.abs(actual - v) > tol) boton = editable(p) ? '<button type="button" class="btn chico" data-a="iaGalones" data-k="' + ab.AbastecimientoID + '" data-v="' + v + '">Usar ' + n1(v) + ' gal</button>' : '';
     } else if (CAMPO_TIPO[t]) {
       actual = R.num(p[CAMPO_TIPO[t]]); tol = Number(t.indexOf('ODOMETRO') === 0 ? cfg().TOL_IA_ODOMETRO_KM || 1 : cfg().TOL_IA_HOROMETRO_H || 0.2);
-      if (editable(p) && /\/paso\/3/.test(location.hash)) boton = '<button type="button" class="btn chico" data-a="iaUsar" data-campo="' + CAMPO_TIPO[t] + '" data-v="' + v + '">Usar ' + n1(v) + '</button>';
+      if (editable(p) && /\/(paso\/3|rapido\/2)/.test(location.hash)) boton = '<button type="button" class="btn chico" data-a="iaUsar" data-campo="' + CAMPO_TIPO[t] + '" data-v="' + v + '">Usar ' + n1(v) + '</button>';
     }
     var dif = actual !== null && actual !== undefined && Math.abs(actual - v) > tol;
     return linea(dif ? 'peligro' : 'ok', 'IA leyó <strong class="num">' + n1(v) + unidad + '</strong> ' + chipConf(campo) +
@@ -884,7 +957,7 @@
         '<button type="button" class="btn ancho" data-a="iaRepetir" data-ev="' + l.EvidenciaID + '">' + ic('refresh') + 'Volver a leer la foto</button>' +
         '<p class="mini">Lo que no marque no se registra. Revise las actividades y lecturas en sus pasos antes de enviar.</p>';
     }
-    marco('Parte de papel con IA', '<form id="fIA" novalidate style="display:grid;gap:16px">' + h + '</form>', { volver: puede ? '#/parte/' + id + '/paso/4' : '#/parte/' + id });
+    marco('Parte de papel con IA', '<form id="fIA" novalidate style="display:grid;gap:16px">' + h + '</form>', { volver: puede ? (modo() === 'detallado' ? '#/parte/' + id + '/paso/4' : '#/parte/' + id + '/rapido/3') : '#/parte/' + id });
     var f = document.getElementById('fIA');
     f.onchange = function (e) { if (e.target.name) iaSel[e.target.name] = e.target.checked; };
     hidratarFotos();
@@ -908,7 +981,7 @@
       obras: perfil().Obras || [], puedeAprobar: perfil().PuedeAprobar }, p, opPC);
     if (N.estado().outbox.some(function (it) { return it.op === 'accion' && it.fila.ParteID === id; })) permitidas = [];
     var botones = '';
-    if (editable(p)) botones += '<a class="btn primario ancho" href="#/parte/' + id + '/paso/' + (p.Estado === 'OBSERVADO' ? 3 : 8) + '">' + ic('edit') + (p.Estado === 'OBSERVADO' ? 'Corregir parte' : 'Continuar y enviar') + '</a>';
+    if (editable(p)) botones += '<a class="btn primario ancho" href="' + rutaParte(id, p.Estado === 'OBSERVADO' ? 2 : 3) + '">' + ic('edit') + (p.Estado === 'OBSERVADO' ? 'Corregir parte' : 'Continuar y enviar') + '</a>';
     botones += botonBorrarParte(p);
     var etiquetas = { APROBAR: ['checkc', 'primario', 'Aprobar'], OBSERVAR: ['alert', '', 'Observar'], EXCEPCION: ['check', '', 'Aceptar excepción de lectura'], ANULAR: ['x', 'peligro', 'Anular'], REABRIR: ['refresh', '', 'Reabrir'] };
     permitidas.filter(function (a) { return etiquetas[a] && (a !== 'EXCEPCION' || (p.ExcepcionLectura && !p.ExcepcionAutorizadaPor)); }).forEach(function (a) {
@@ -1094,12 +1167,36 @@
     ir: function (b) {
       var m = location.hash.match(/#\/parte\/([^/]+)\/paso\/(\d+)/);
       if (m) { var err = guardarPaso(m[1], Number(m[2])); if (err) { toast(err); return; } }
+      var r = location.hash.match(/#\/parte\/([^/]+)\/rapido\/(\d)/);
+      if (r) { var e2 = guardarRapido(r[1], Number(r[2])); if (e2) { toast(e2); return; } }
       location.hash = b.dataset.h;
     },
     sync: function () { if (!navigator.onLine) { toast('Sin señal: se enviará al reconectar.'); return; } N.sincronizar(); },
     turno: function (b) {
       document.querySelectorAll('[data-a="turno"]').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
       document.querySelector('[name="Turno"]').value = b.dataset.v;
+      // en el modo rápido el equipo está en la misma pantalla: se muestran los equipos del turno elegido
+      var m = location.hash.match(/#\/parte\/([^/]+)\/rapido\/1/);
+      if (m) { eleccion[m[1]] = Object.assign({}, eleccion[m[1]], { Turno: b.dataset.v, AsignacionID: '' }); respaldarEscrito(); render(); }
+    },
+    rapSig: function (b) {
+      var err = guardarRapido(b.dataset.id, Number(b.dataset.p));
+      if (err) { toast(err); return; }
+      olvidarEscrito();
+      location.hash = '#/parte/' + b.dataset.id + '/rapido/' + (Number(b.dataset.p) + 1);
+    },
+    rapAnt: function (b) { guardarRapido(b.dataset.id, Number(b.dataset.p)); location.hash = '#/parte/' + b.dataset.id + '/rapido/' + (Number(b.dataset.p) - 1); },
+    detallado: function (b) {
+      var m = location.hash.match(/#\/parte\/([^/]+)\/rapido\/(\d)/);
+      if (m) { var err = guardarRapido(m[1], Number(m[2])); if (err) { toast(err); return; } }
+      modo('detallado');
+      location.hash = b.getAttribute('href');
+    },
+    rapidoModo: function (b) {
+      var m = location.hash.match(/#\/parte\/([^/]+)\/paso\/(\d)/);
+      if (m) { var err = guardarPaso(m[1], Number(m[2])); if (err) { toast(err); return; } }
+      modo('rapido');
+      location.hash = b.getAttribute('href');
     },
     pasoSig: function (b) {
       var err = guardarPaso(b.dataset.id, Number(b.dataset.p));
@@ -1205,7 +1302,7 @@
       N.guardar('LECTURAS_IA', { LecturaID: l.LecturaID, ParteID: id, Estado: 'CONFIRMADA', Aplicado: JSON.stringify(ap) });
       iaSel = {};
       toast('Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' + (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : ''));
-      location.hash = '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4);
+      location.hash = modo() === 'detallado' ? '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4) : '#/parte/' + id + '/rapido/' + (Object.keys(ap.lecturas).length ? 2 : 3);
     },
     borrarParte: function (b) {
       var p = getParte(b.dataset.id);
@@ -1263,7 +1360,8 @@
   });
   document.addEventListener('change', function (e) {
     if (e.target.name === 'AsignacionID') {
-      var m = location.hash.match(/#\/parte\/([^/]+)\/paso\/2/);
+      var m = location.hash.match(/#\/parte\/([^/]+)\/(?:paso\/2|rapido\/1)/);
+      if (m && eleccion[m[1]]) delete eleccion[m[1]].AsignacionID;
       if (m) { var p = getParte(m[1]); var a = busca('ASIGNACIONES', 'AsignacionID', e.target.value); tmp[p.ParteID] = Object.assign({}, p, { AsignacionID: a.AsignacionID, FrenteID: a.FrenteID }); if (!p.Estado) render(); else document.querySelectorAll('.opcion').forEach(function (o) { o.setAttribute('aria-checked', o.contains(e.target)); }); }
     }
   });
@@ -1315,7 +1413,7 @@
       else el.value = escrito.vals[el.name];
     });
     escrito = null;
-    var m = location.hash.match(/paso\/(\d)/);
+    var m = location.hash.match(/paso\/(\d)/) || (/rapido\/2/.test(location.hash) ? [0, '3'] : null);
     var p = getParte(location.hash.split('/')[2]);
     if (m && p) vivo(p, Number(m[1]));
   }
@@ -1339,6 +1437,7 @@
     if (r[1] === 'parte' && r[2] === 'nuevo') { if (esOp) nuevoParte(q); else location.replace('#/revisar'); return; }
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
     if (r[1] === 'parte' && r[3] === 'ia') return vIA(r[2]);
+    if (r[1] === 'parte' && r[3] === 'rapido') return vRapido(r[2], Number(r[4]));
     if (r[1] === 'parte' && r[2]) return vDetalle(r[2]);
     if (r[1] === 'falla' && r[2]) return vFalla(r[2]);
     if (r[1] === 'partes' && esOp) return vMisPartes();
