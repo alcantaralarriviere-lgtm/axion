@@ -137,7 +137,7 @@ var Reglas = (function () {
       var de = function (tipo) { return evid.some(function (e) { return e.AbastecimientoID === x.AbastecimientoID && e.TipoEvidencia === tipo; }); };
       var g = ' (' + (num(x.Galones) === null ? '' : x.Galones + ' gal') + ')';
       if (cfg.FOTO_ABASTECIMIENTO_OBLIGATORIA === 'SI' && equipo.TieneHorometro && !de('HOROMETRO_ABASTECIMIENTO')) f.push('Horómetro de abastecimiento' + g);
-      if (cfg.FOTO_COMBUSTIBLE_OBLIGATORIA !== 'NO') {
+      if (cfg.FOTO_COMBUSTIBLE_OBLIGATORIA === 'SI') {
         if (!de('ABASTECIMIENTO')) f.push('Abastecimiento' + g);
         if (!de('CANTIDAD_ABASTECIDA')) f.push('Cantidad abastecida' + g);
       }
@@ -224,6 +224,14 @@ var Reglas = (function () {
         if (CONF_OK.indexOf(v.confianza) < 0) add('Viaje ' + (i + 1), v.confianza === 'ILEGIBLE' ? 'ILEGIBLE' : 'DUDOSO', 'Viaje ' + (i + 1) + ': datos poco legibles ("' + (v.texto || '?') + '").');
       });
       (papel.no_reconocido || []).forEach(function (t) { add('Texto', 'ILEGIBLE', 'Zona no reconocida: ' + t); });
+      // combustible anotado en el papel contra lo registrado en la app
+      var galP = papel.combustible ? num(papel.combustible.galones) : null;
+      var deEste = abast.filter(function (x) { return x.ParteID === p.ParteID; });
+      var galA = deEste.reduce(function (s, x) { return s + (num(x.Galones) || 0); }, 0);
+      if (galP !== null && CONF_OK.indexOf(papel.combustible.confianza) < 0) add('Combustible', 'DUDOSO', 'Combustible en el papel poco legible ("' + (papel.combustible.texto || galP) + '"). Verifique los galones.');
+      if (galP !== null && !deEste.length && p.SinAbastecimiento === true) add('Combustible', 'INCONSISTENTE', 'El parte de papel anota ' + galP + ' gal pero se marcó "no hubo abastecimiento".');
+      else if (galP !== null && !deEste.length) add('Combustible', 'DUDOSO', 'El parte de papel anota ' + galP + ' gal y aún no se registró el abastecimiento.');
+      else if (galP !== null && Math.abs(galP - galA) > tol.gal) add('Combustible', 'INCONSISTENTE', 'El parte de papel anota ' + galP + ' gal y en la app hay ' + galA + ' gal.');
     }
     abast.filter(function (x) { return x.ParteID === p.ParteID; }).forEach(function (x) {
       var l = lecturasIA.filter(function (y) {

@@ -438,11 +438,14 @@
     return '<div class="etiqueta-seccion">Abastecimiento de combustible</div><div class="lista">' + abs.map(function (x) {
       return '<div class="tarjeta"><div class="entre"><div><h3>' + n1(x.Galones) + ' gal</h3><div class="mini">' + fFH(x.FechaHora) + (x.HorometroAbastecimiento !== '' ? ' · horómetro ' + n1(x.HorometroAbastecimiento) : '') + '</div>' + (x._error ? '<div class="msg-error">' + esc(x._error) + '</div>' : '') + '</div>' +
         '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="ABASTECIMIENTOS" data-k="' + x.AbastecimientoID + '" aria-label="Eliminar abastecimiento">' + ic('trash') + '</button></div>' +
-        '<div class="lista" style="margin-top:10px">' +
-        botonFoto(p, 'ABASTECIMIENTO', 'Foto del abastecimiento (que se vea el equipo)', { AbastecimientoID: x.AbastecimientoID }) +
-        botonFoto(p, 'CANTIDAD_ABASTECIDA', 'Foto de la cantidad (surtidor, comprobante o medidor)', { AbastecimientoID: x.AbastecimientoID }) +
-        (eq.TieneHorometro ? botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) : '') + '</div></div>';
+        // las fotos de combustible solo se piden si el administrador las exige (por defecto se lee del parte de papel)
+        (cfg().FOTO_COMBUSTIBLE_OBLIGATORIA === 'SI' || (cfg().FOTO_ABASTECIMIENTO_OBLIGATORIA === 'SI' && eq.TieneHorometro) ? '<div class="lista" style="margin-top:10px">' +
+          (cfg().FOTO_COMBUSTIBLE_OBLIGATORIA === 'SI' ? botonFoto(p, 'ABASTECIMIENTO', 'Foto del abastecimiento (que se vea el equipo)', { AbastecimientoID: x.AbastecimientoID }) +
+            botonFoto(p, 'CANTIDAD_ABASTECIDA', 'Foto de la cantidad (surtidor, comprobante o medidor)', { AbastecimientoID: x.AbastecimientoID }) : '') +
+          (cfg().FOTO_ABASTECIMIENTO_OBLIGATORIA === 'SI' && eq.TieneHorometro ? botonFoto(p, 'HOROMETRO_ABASTECIMIENTO', 'Foto del horómetro', { AbastecimientoID: x.AbastecimientoID }) : '') + '</div>' : '') +
+        (x.Observaciones ? '<div class="mini">' + esc(x.Observaciones) + '</div>' : '') + '</div>';
     }).join('') + '</div>' +
+      (!abs.length && N.iaLista() ? '<p class="mini">Si el abastecimiento está anotado en el parte de papel, la IA lo registra cuando usted confirme la lectura.</p>' : '') +
       (abs.length ? '' : '<label class="check tarjeta"><input type="checkbox" data-a="sinAbast" data-id="' + p.ParteID + '"' + (p.SinAbastecimiento === true ? ' checked' : '') + '>' +
         '<span><strong>Hoy no hubo abastecimiento</strong><span class="sub" style="display:block">Márquelo para que la falta de fotos de combustible no cuente como omisión.</span></span></label>') +
       '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
@@ -823,19 +826,19 @@
     var p = getParte(parteID);
     var eq = equipo(p.EquipoID);
     hoja('Abastecimiento de combustible',
-      (eq.TieneHorometro ? campo('Horómetro al abastecer', '<input name="HorometroAbastecimiento" type="number" inputmode="decimal" step="0.1" value="' + esc(p.HorometroInicial) + '">', true) : '') +
+      (eq.TieneHorometro ? campo('Horómetro al abastecer (si lo tiene)', '<input name="HorometroAbastecimiento" type="number" inputmode="decimal" step="0.1">') : '') +
       (eq.TieneOdometro ? campo('Odómetro al abastecer', '<input name="OdometroAbastecimiento" type="number" inputmode="decimal">') : '') +
       campo('Galones', '<input name="Galones" type="number" inputmode="decimal" min="0" step="0.1">', true) +
-      '<p class="mini">Después tome las fotos desde la tarjeta del abastecimiento: el abastecimiento, la cantidad (surtidor o comprobante)' + (eq.TieneHorometro ? ' y el horómetro' : '') + '. La IA leerá los galones.</p>',
+      '<p class="mini">Use este formulario solo si el abastecimiento no está en el parte de papel (la IA lo registra al confirmar la lectura).</p>',
       function (v) {
         var h = R.num(v.HorometroAbastecimiento), g = R.num(v.Galones);
-        if (eq.TieneHorometro && (h === null || h < Number(p.HorometroInicial) || (R.num(p.HorometroFinal) !== null && h > Number(p.HorometroFinal))))
+        if (eq.TieneHorometro && h !== null && ((R.num(p.HorometroInicial) !== null && h < Number(p.HorometroInicial)) || (R.num(p.HorometroFinal) !== null && h > Number(p.HorometroFinal))))
           return 'El horómetro debe estar entre el inicial y el final del parte.';
         if (!(g > 0) || g > Number(cfg().MAX_GALONES_ABASTECIMIENTO || 300)) return 'Galones fuera de rango.';
         N.guardar('ABASTECIMIENTOS', { AbastecimientoID: N.nuevoID('ABA'), ParteID: parteID, EquipoID: p.EquipoID, FechaHora: R.isoLima(Date.now()),
           HorometroAbastecimiento: h === null ? '' : h, OdometroAbastecimiento: R.num(v.OdometroAbastecimiento) === null ? '' : R.num(v.OdometroAbastecimiento), Galones: g });
         if (p.SinAbastecimiento === true) guardarParte(Object.assign({}, p, { SinAbastecimiento: false }));
-        toast('Abastecimiento guardado: tome las fotos');
+        toast('Abastecimiento guardado');
       });
   }
 
@@ -894,6 +897,41 @@
     if (!(R.num(v.cantidad) > 0)) return { falta: 'falta la cantidad' };
     return { fila: { HoraSalida: v.hora_salida, HoraLlegada: v.hora_llegada, Origen: v.origen, Destino: v.destino, MaterialID: m.MaterialID,
       Cantidad: R.num(v.cantidad), Unidad: m.UnidadPredeterminada, Observaciones: 'Leído por IA: ' + String(v.texto || '').substring(0, 200) } };
+  }
+
+  /** Abastecimiento leído del parte de papel, listo para registrar (o el motivo por el que no). */
+  function abastIA(p, r) {
+    var c = r.combustible;
+    var g = c ? R.num(c.galones) : null;
+    if (g === null) return null;
+    var eq = equipo(p.EquipoID), t = turno(p.Turno);
+    if (!(g > 0) || g > Number(cfg().MAX_GALONES_ABASTECIMIENTO || 300)) return { falta: 'galones fuera de rango (' + g + ')' };
+    var h = eq.TieneHorometro ? R.num(c.horometro) : null;
+    var nota = '';
+    if (h !== null && ((R.num(p.HorometroInicial) !== null && h < Number(p.HorometroInicial)) || (R.num(p.HorometroFinal) !== null && h > Number(p.HorometroFinal)))) {
+      nota = ' · horómetro anotado ' + h + ' fuera del turno: no se registra'; h = null;
+    }
+    // hora: la anotada; si no, la de la actividad de abastecimiento; si no, el inicio del turno
+    var actAb = (r.actividades || []).filter(function (a) { return /abastec/i.test((catAct()[a.actividad_cat_id] || {}).Nombre || a.texto || ''); })[0];
+    var hora = HORA.test(c.hora || '') ? c.hora : (actAb && HORA.test(actAb.hora_inicio || '') ? actAb.hora_inicio : t.HoraInicio);
+    var fecha = p.Turno === 'NOCHE' && hora < t.HoraInicio ? R.sumarDias(p.FechaTrabajo, 1) : p.FechaTrabajo;
+    return { fila: { ParteID: p.ParteID, EquipoID: p.EquipoID, FechaHora: fecha + 'T' + hora + ':00-05:00', Galones: g,
+      HorometroAbastecimiento: h === null ? '' : h, OdometroAbastecimiento: eq.TieneOdometro && R.num(c.odometro) !== null ? R.num(c.odometro) : '',
+      Observaciones: 'Leído por IA del parte de papel: ' + String(c.texto || '').substring(0, 150) + nota } };
+  }
+  function bloqueCombustibleIA(p, r, abierta) {
+    var c = r.combustible, abs = N.hijos('ABASTECIMIENTOS', p.ParteID), x = abastIA(p, r);
+    if (!c || !c.texto && R.num(c.galones) === null) {
+      return '<div class="tarjeta"><h3>Combustible</h3><p class="sub">El parte de papel no anota abastecimiento.</p>' +
+        (abierta && !abs.length && p.SinAbastecimiento !== true ? '<label class="check"><input type="checkbox" name="sinab"' + (marcaIA('sinab', true) ? ' checked' : '') + '><span>Marcar "Hoy no hubo abastecimiento"</span></label>' : '') + '</div>';
+    }
+    var f = x && x.fila;
+    return '<div class="tarjeta"><div class="entre"><h3>Combustible</h3>' + chipConf(c) + '</div><p class="sub">' + esc(c.texto || '') + '</p>' +
+      (f ? '<div class="mini">' + n1(f.Galones) + ' gal' + (f.HorometroAbastecimiento !== '' ? ' · horómetro ' + n1(f.HorometroAbastecimiento) : '') +
+        (f.OdometroAbastecimiento !== '' ? ' · km ' + n1(f.OdometroAbastecimiento) : '') + ' · ' + fFH(f.FechaHora) + '</div>' : '') +
+      (x && x.falta ? '<div class="mini">No se puede registrar: ' + esc(x.falta) + '. Regístrelo a mano.</div>' : '') +
+      (abs.length ? '<div class="mini">Ya hay ' + abs.length + ' abastecimiento(s) registrado(s) en este parte.</div>' : '') +
+      (abierta && f ? '<label class="check"><input type="checkbox" name="comb"' + (marcaIA('comb', !abs.length && (c.confianza === 'ALTA' || c.confianza === 'MEDIA')) ? ' checked' : '') + '><span>Registrar este abastecimiento en la app</span></label>' : '') + '</div>';
   }
 
   function vIA(id) {
@@ -958,7 +996,7 @@
       };
       h += '<div class="etiqueta-seccion">Otras anotaciones</div>' +
         nota('Volquetes', r.volquetes, r.volquetes && r.volquetes.cantidad !== null && r.volquetes.cantidad !== undefined ? '<div class="mini">Cantidad: ' + n1(r.volquetes.cantidad) + '</div>' : '') +
-        nota('Combustible', r.combustible, '<div class="mini">' + (r.combustible && R.num(r.combustible.galones) !== null ? 'Galones anotados: ' + n1(r.combustible.galones) + '. ' : '') + 'Regístrelo en el paso 5 con sus fotos.</div>') +
+        bloqueCombustibleIA(p, r, abierta) +
         nota('Fallas (solo referencia)', r.fallas, puede ? '<button type="button" class="btn chico" data-a="iaFalla" data-id="' + id + '" data-l="' + l.LecturaID + '">' + ic('wrench') + 'Reportar la falla con este texto</button>' : '') +
         nota('Observaciones', r.observaciones, abierta ? '<label class="check"><input type="checkbox" name="obs"' + (marcaIA('obs', !p.ObservacionOperador) ? ' checked' : '') + '><span>Copiar a mi comentario</span></label>' : '') +
         ((r.no_reconocido || []).length ? '<div class="tarjeta"><h3>No se pudo leer</h3><ul class="sub">' + r.no_reconocido.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' : '') +
@@ -1301,7 +1339,15 @@
         p.ObservacionOperador = (p.ObservacionOperador ? p.ObservacionOperador + '\n' : '') + 'Parte de papel: ' + r.observaciones.texto;
         ap.observaciones = true;
       }
-      if (Object.keys(ap.lecturas).length || ap.observaciones) guardarParte(p);
+      var xab = abastIA(p, r);
+      if (marca('comb') && xab && xab.fila) {
+        var ab = Object.assign({ AbastecimientoID: N.nuevoID('ABA') }, xab.fila);
+        ap.abastecimiento = { AbastecimientoID: ab.AbastecimientoID, Galones: ab.Galones };
+        if (p.SinAbastecimiento === true) p.SinAbastecimiento = false;
+      }
+      if (marca('sinab')) { p.SinAbastecimiento = true; ap.sinAbastecimiento = true; }
+      if (Object.keys(ap.lecturas).length || ap.observaciones || ap.abastecimiento || ap.sinAbastecimiento) guardarParte(p);
+      if (ap.abastecimiento) N.guardar('ABASTECIMIENTOS', ab);
       var t = turno(p.Turno);
       var acts = N.hijos('ACTIVIDADES', id);
       (r.actividades || []).forEach(function (a, i) {
@@ -1325,7 +1371,9 @@
       });
       N.guardar('LECTURAS_IA', { LecturaID: l.LecturaID, ParteID: id, Estado: 'CONFIRMADA', Aplicado: JSON.stringify(ap) });
       iaSel = {};
-      toast('Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' + (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : ''));
+      toast('Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' +
+        (ap.abastecimiento ? ', ' + n1(ap.abastecimiento.Galones) + ' gal de combustible' : ap.sinAbastecimiento ? ', sin abastecimiento' : '') +
+        (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : ''));
       location.hash = modo() === 'detallado' ? '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4) : '#/parte/' + id + '/rapido/' + (Object.keys(ap.lecturas).length ? 2 : 3);
     },
     borrarParte: function (b) {
