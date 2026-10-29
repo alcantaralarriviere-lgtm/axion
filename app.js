@@ -1493,5 +1493,17 @@
   dlg.addEventListener('close', function () { setTimeout(render, 0); });
   window.addEventListener('hashchange', function () { window.scrollTo(0, 0); render(); });
   N.iniciar().then(function () { render(); if (S().token) N.sincronizar(); });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) {
+    // versión nueva publicada: el service worker nuevo toma el control y la app se recarga una vez (lo escrito se recupera)
+    var habiaControl = !!navigator.serviceWorker.controller, recargando = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!habiaControl || recargando) { habiaControl = true; return; }
+      recargando = true;
+      respaldarEscrito();
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) reg.update().catch(function () {}); });
+    }).catch(function () {});
+  }
 })();
