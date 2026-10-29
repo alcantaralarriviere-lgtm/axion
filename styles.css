@@ -93,6 +93,11 @@ h3 { font-size: 16px; margin: 0; font-weight: 600; }
 .estado.anulado { text-decoration: line-through; color: var(--texto-3); }
 .estado.peligro { background: rgba(255, 69, 58, .16); color: #FF8A82; }
 .estado.duda { background: rgba(255, 214, 10, .16); color: #FFD60A; }
+/* historial plegable del parte */
+.historial-mas { display: grid; gap: 10px; }
+.historial-mas > summary { list-style: none; cursor: pointer; }
+.historial-mas > summary::-webkit-details-marker { display: none; }
+.historial-mas[open] > summary { opacity: .8; }
 /* lectura con IA */
 .ia-caja { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .ia-caja:empty { display: none; }

@@ -1028,12 +1028,25 @@
         return '<a class="tarjeta tocable" href="#/falla/' + f.FallaID + '" style="display:block;color:inherit;text-decoration:none"><div class="entre"><div><h3>' + esc(f.Componente) + '</h3><div class="sub">' + esc(f.Descripcion) + '</div></div><span class="estado alerta">' + ic('wrench') + esc(f.Estado) + '</span></div></a>';
       }).join('') : '') +
       '<div class="etiqueta-seccion">Fotos (' + ev.length + ')</div>' + galeria(ev) +
-      '<div class="etiqueta-seccion">Historial</div><div class="tarjeta linea-tiempo">' + (revs.map(function (r) {
-        return '<div class="' + (r.ResultadoServidor === 'APLICADA' ? 'ok' : '') + '"><span></span><div><strong>' + esc(r.Accion) + '</strong> · ' + esc(r.Usuario) +
-          '<div class="mini">' + (r.FechaHoraServidor ? 'servidor ' + fFH(r.FechaHoraServidor) : 'pendiente de sincronización') + (r.ResultadoServidor === 'RECHAZADA' ? ' · RECHAZADA: ' + esc(r.DetalleServidor) : '') + '</div>' +
-          (r.Comentario ? '<div class="sub">' + esc(r.Comentario) + '</div>' : '') + '</div></div>';
-      }).join('') || '<p class="mini">Sin movimientos.</p>') + '</div>';
+      '<div class="etiqueta-seccion">Historial (' + revs.length + ')</div>' + historial(revs);
     marco(p.CodigoParte || 'Parte', cuerpo, { volver: rol() === 'OPERADOR' ? '#/partes' : '#/revisar' });
+  }
+
+  /** Historial del parte: lo más reciente primero; se ven los 3 últimos y el resto queda plegado. */
+  function historial(revs) {
+    if (!revs.length) return '<div class="tarjeta"><p class="mini">Sin movimientos.</p></div>';
+    var corto = function (t) { t = String(t || ''); return t.length > 160 ? t.substring(0, 157) + '…' : t; };
+    var fila = function (r) {
+      // la viñeta la dibuja el CSS (::before): un elemento vacío aquí empujaba el texto a la columna de 14 px
+      return '<div class="' + (r.ResultadoServidor === 'APLICADA' ? 'ok' : '') + '"><div class="crece" style="min-width:0;overflow-wrap:anywhere"><strong>' + esc(r.Accion) + '</strong> · ' + esc(r.Usuario) +
+        '<div class="mini">' + (r.FechaHoraServidor ? 'servidor ' + fFH(r.FechaHoraServidor) : 'pendiente de sincronización') +
+        (r.ResultadoServidor === 'RECHAZADA' ? ' · RECHAZADA: ' + esc(corto(r.DetalleServidor)) : '') + '</div>' +
+        (r.Comentario ? '<div class="sub">' + esc(corto(r.Comentario)) + '</div>' : '') + '</div></div>';
+    };
+    var lista = revs.slice().reverse();
+    return '<div class="tarjeta linea-tiempo">' + lista.slice(0, 3).map(fila).join('') + '</div>' +
+      (lista.length > 3 ? '<details class="historial-mas"><summary class="btn ancho">Ver historial completo (' + (lista.length - 3) + ' más)</summary>' +
+        '<div class="tarjeta linea-tiempo">' + lista.slice(3).map(fila).join('') + '</div></details>' : '');
   }
 
   /** Resumen de la IA en el detalle: diferencias encontradas y lo leído en cada foto (para el revisor). */
