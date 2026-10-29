@@ -38,6 +38,7 @@
   function rol() { return perfil().Rol; }
   function cat() { return S().cat || {}; }
   function cfg() { return cat().CONFIGURACION || {}; }
+  function sinPlazo() { return cfg().PLAZO_ENTREGA === 'NO'; }
   function busca(lista, campo, id) { return (cat()[lista] || []).filter(function (x) { return x[campo] === id; })[0] || {}; }
   function equipo(id) { return busca('EQUIPOS', 'EquipoID', id); }
   function turno(id) { return busca('TURNOS', 'TurnoID', id); }
@@ -408,7 +409,7 @@
         '<div class="kpi"><div class="v num">' + N.hijos('VIAJES', p.ParteID).length + '</div><div class="l">Viajes</div></div></div>' +
         '<div class="tarjeta"><dl class="datos-def"><dt>Equipo</dt><dd>' + esc(eq.CodigoInterno) + '</dd><dt>Fecha / turno</dt><dd>' + fF(p.FechaTrabajo) + ' · ' + esc(p.Turno) + '</dd>' +
         '<dt>Frente</dt><dd>' + esc(nombreFrente(p.FrenteID)) + '</dd><dt>Actividades</dt><dd>' + acts.length + '</dd><dt>Fallas</dt><dd>' + N.filas('FALLAS', function (f) { return f.ParteID === p.ParteID; }).length + '</dd>' +
-        '<dt>Fotos</dt><dd>' + N.hijos('EVIDENCIAS', p.ParteID).length + '</dd><dt>Plazo de entrega</dt><dd>' + fFH(p.FechaHoraLimite || R.limite(p.FechaTrabajo, turno(p.Turno))) + '</dd></dl></div>' +
+        '<dt>Fotos</dt><dd>' + N.hijos('EVIDENCIAS', p.ParteID).length + '</dd>' + (sinPlazo() ? '' : '<dt>Plazo de entrega</dt><dd>' + fFH(p.FechaHoraLimite || R.limite(p.FechaTrabajo, turno(p.Turno))) + '</dd>') + '</dl></div>' +
         (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div></div></div>' : '') +
         listaHallazgos(hallazgosIA(p)) +
         (r.ok ? '<div class="aviso">' + ic('checkc') + '<div><strong>Listo para enviar.</strong> Al enviar ya no podrá modificarlo, salvo que el supervisor lo observe.</div></div>'
@@ -500,11 +501,21 @@
   /** Guarda el paso del modo rápido con las mismas validaciones del modo detallado. */
   function guardarRapido(id, n) {
     if (n === 1) {
-      var e1 = guardarPaso(id, 1);
-      if (e1) return e1;
-      var e2 = guardarPaso(id, 2);
-      if (!e2) delete eleccion[id];
-      return e2;
+      // fecha, turno y equipo se guardan juntos (si se guardaran por separado, un borrador ya guardado volvería a su fecha anterior)
+      var p = Object.assign({}, getParte(id));
+      var v = valoresForm();
+      if (!v.FechaTrabajo) return 'Indique la fecha de trabajo.';
+      var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
+      if ((v.FechaTrabajo !== p.FechaTrabajo || !p.Estado) && (v.FechaTrabajo > hoy() || v.FechaTrabajo < min)) return 'Fecha fuera del rango permitido (' + fF(min) + ' a ' + fF(hoy()) + ').';
+      if (!v.AsignacionID) return 'Elija el equipo autorizado.';
+      var a = busca('ASIGNACIONES', 'AsignacionID', v.AsignacionID);
+      if (a.Turno !== v.Turno) return 'El equipo elegido no corresponde al turno. Vuelva a elegir el equipo.';
+      p.FechaTrabajo = v.FechaTrabajo; p.Turno = v.Turno; p.AsignacionID = v.AsignacionID; p.FrenteID = v.FrenteID || a.FrenteID;
+      var dup = N.filas('PARTES_DIARIOS', function (x) { return x.ParteID !== p.ParteID && x.Estado !== 'ANULADO' && x.FechaTrabajo === p.FechaTrabajo && x.Turno === p.Turno && (x.EquipoID === a.EquipoID || x.OperadorID === p.OperadorID); })[0];
+      if (dup) return 'Ya existe el parte ' + (dup.CodigoParte || '') + ' para esta fecha y turno. Ábralo desde Mis partes.';
+      guardarParte(p);
+      delete eleccion[id];
+      return null;
     }
     if (n === 2) return guardarPaso(id, 3);
     return guardarPaso(id, 8);
@@ -1004,7 +1015,7 @@
       '<div class="tarjeta"><dl class="datos-def"><dt>Obra</dt><dd>' + esc(nombreObra(p.ObraID)) + '</dd><dt>Frente</dt><dd>' + esc(nombreFrente(p.FrenteID)) + '</dd>' +
       (eq.TieneHorometro ? '<dt>Horómetro</dt><dd>' + n1(p.HorometroInicial) + ' → ' + n1(p.HorometroFinal) + '</dd>' : '') +
       (eq.TieneOdometro ? '<dt>Odómetro</dt><dd>' + n1(p.OdometroInicial) + ' → ' + n1(p.OdometroFinal) + '</dd>' : '') +
-      '<dt>Enviado (celular)</dt><dd>' + fFH(p.FechaEnvio) + '</dd><dt>Recibido (servidor)</dt><dd>' + fFH(p.FechaRecepcionServidor) + '</dd><dt>Plazo</dt><dd>' + fFH(p.FechaHoraLimite) + '</dd></dl></div>' +
+      '<dt>Enviado (celular)</dt><dd>' + fFH(p.FechaEnvio) + '</dd><dt>Recibido (servidor)</dt><dd>' + fFH(p.FechaRecepcionServidor) + '</dd>' + (sinPlazo() ? '' : '<dt>Plazo</dt><dd>' + fFH(p.FechaHoraLimite) + '</dd>') + '</dl></div>' +
       '<div class="etiqueta-seccion">Actividades (' + acts.length + ')</div><div class="lista">' + (acts.map(function (a) {
         var c = catAct()[a.ActividadCatID] || {};
         return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(c.Nombre) + '</h3><div class="mini num">' + a.HoraInicio + '–' + a.HoraFin + ' · ' + n1(a.DuracionHoras) + ' h' + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div></div>' +
@@ -1080,7 +1091,7 @@
     var aceptar = cfg().ACEPTAR_SINCRONIZACION_TARDIA === 'SI';
     var dia = todos.filter(function (c) { return c.FechaTrabajo === diaCumpl; }).map(function (c) {
       var p = c.ParteID ? N.fila('PARTES_DIARIOS', c.ParteID) : null;
-      return Object.assign({}, c, { E: p || !c.EstadoCumplimiento ? R.estadoCumplimiento(c.FechaHoraLimite, p, Date.now(), aceptar) : c.EstadoCumplimiento });
+      return Object.assign({}, c, { E: p || !c.EstadoCumplimiento ? R.estadoCumplimiento(c.FechaHoraLimite, p, Date.now(), aceptar, sinPlazo()) : c.EstadoCumplimiento });
     });
     var cnt = function (f) { return dia.filter(f).length; };
     var aTiempo = cnt(function (c) { return c.E === 'A TIEMPO'; }) + (aceptar ? cnt(function (c) { return c.E === 'ENVIADO A TIEMPO - SINCRONIZADO TARDE'; }) : 0);
@@ -1095,7 +1106,7 @@
       '<div class="kpi"><div class="v num">' + cnt(function (c) { return /^SIN/.test(c.E); }) + '</div><div class="l">Sin parte</div></div></div>' +
       '<div class="lista">' + dia.sort(function (a, b) { return a.E.localeCompare(b.E); }).map(function (c) {
         var eq = equipo(c.EquipoID);
-        var inner = '<div class="entre"><div><h3>' + esc(eq.CodigoInterno || c.EquipoID) + ' · ' + esc(c.Turno) + '</h3><div class="mini">' + esc(nombreOp(c.OperadorID)) + ' · plazo ' + fFH(c.FechaHoraLimite) + '</div></div>' + chipCumpl(c.E) + '</div>';
+        var inner = '<div class="entre"><div><h3>' + esc(eq.CodigoInterno || c.EquipoID) + ' · ' + esc(c.Turno) + '</h3><div class="mini">' + esc(nombreOp(c.OperadorID)) + (sinPlazo() ? '' : ' · plazo ' + fFH(c.FechaHoraLimite)) + '</div></div>' + chipCumpl(c.E) + '</div>';
         return c.ParteID ? '<a class="tarjeta tocable" href="#/parte/' + c.ParteID + '" style="display:block;color:inherit;text-decoration:none">' + inner + '</a>' : '<div class="tarjeta">' + inner + '</div>';
       }).join('') + '</div>' + (dia.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>Sin partes esperados.</p></div>'));
   }

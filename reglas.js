@@ -258,7 +258,9 @@ var Reglas = (function () {
   }
 
   /** Estado de cumplimiento (misma regla que el Excel maestro). */
-  function estadoCumplimiento(limiteISO, parte, ahoraMs, aceptarTardia) {
+  function estadoCumplimiento(limiteISO, parte, ahoraMs, aceptarTardia, sinPlazo) {
+    // sin plazo de entrega (CONFIGURACION.PLAZO_ENTREGA = NO): solo importa si el parte llegó o no
+    if (sinPlazo) return !parte ? 'SIN PARTE' : (vacio(parte.FechaRecepcionServidor) ? 'BORRADOR (SIN ENVIAR)' : 'A TIEMPO');
     var lim = Date.parse(limiteISO);
     if (!parte) return ahoraMs > lim ? 'SIN PARTE (VENCIDO)' : 'PENDIENTE (EN PLAZO)';
     if (vacio(parte.FechaRecepcionServidor)) return ahoraMs > lim ? 'SIN ENVIO (VENCIDO)' : 'BORRADOR (EN PLAZO)';
