@@ -261,7 +261,8 @@ var Reglas = (function () {
     if (!abast.some(function (x) { return x.ParteID === p.ParteID; }) && p.SinAbastecimiento !== true)
       faltan.push('Combustible: registre el abastecimiento o marque "Hoy no hubo abastecimiento".');
     var porConfirmar = (lecturasIA || []).filter(function (l) { return l.ParteID === p.ParteID && l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && l.Estado === 'PROCESADA'; });
-    if (porConfirmar.length) faltan.push('Revise y confirme lo que la IA leyó del parte de papel.');
+    // con IA_AUTOAPLICAR = NO el operador debe confirmar a mano lo leído; por defecto se registra solo
+    if (porConfirmar.length && cfg.IA_AUTOAPLICAR === 'NO') faltan.push('Revise y confirme lo que la IA leyó del parte de papel.');
     return { ok: faltan.length === 0, faltan: faltan };
   }
 

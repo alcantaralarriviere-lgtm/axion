@@ -158,6 +158,10 @@ var Nucleo = (function () {
     var soloLocal = !x._srv;
     S.outbox = S.outbox.filter(function (it) { return !(it.ref === id && !it.enviando); });
     delete S.t[tabla][id];
+    if (tabla === 'EVIDENCIAS') {
+      idb('fotos', 'readwrite', function (s) { return s.delete(id); }).catch(function () {});
+      for (var k in S.t.LECTURAS_IA) if (S.t.LECTURAS_IA[k].EvidenciaID === id) delete S.t.LECTURAS_IA[k];
+    }
     if (!soloLocal) encolar({ op: 'eliminar', tabla: tabla, ref: id, parte: x.ParteID, id: id });
     avisar();
     programar(1500);

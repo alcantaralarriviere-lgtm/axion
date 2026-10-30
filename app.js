@@ -253,6 +253,8 @@
     var id = N.nuevoID('PD');
     tmp[id] = { ParteID: id, OperadorID: perfil().OperadorID, FechaTrabajo: q.fecha || pr.fecha, Turno: a ? a.Turno : pr.turno,
       AsignacionID: a ? a.AsignacionID : '', FrenteID: a ? a.FrenteID : '', FechaCreacion: R.isoLima(Date.now()), Estado: '' };
+    // pantalla única: al tocar su equipo en Inicio, el parte se crea al instante (sin pasos)
+    if (a && modo() === 'uno') { guardarParte(Object.assign({}, tmp[id])); location.replace('#/parte/' + id + '/uno'); return; }
     location.replace(rutaParte(id, 1));
   }
 
@@ -451,11 +453,99 @@
       '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
   }
 
+  // ------------------------------------------------------------ parte en 1 pantalla (predeterminado)
+  // El operador toma la foto del parte de papel, la IA llena todo sola y él solo corrige lo marcado en rojo.
+  function vUno(id) {
+    var p = getParte(id);
+    if (!p) { location.replace('#/inicio'); return; }
+    if (p.Estado && !editable(p)) { location.replace('#/parte/' + id); return; }
+    if (!p.AsignacionID) { location.replace('#/parte/' + id + '/rapido/1'); return; }
+    modo('uno');
+    var eq = equipo(p.EquipoID), t = turno(p.Turno);
+    var evP = N.hijos('EVIDENCIAS', id).filter(function (e) { return e.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && !e._error; });
+    var foto = evP[evP.length - 1];
+    var est = foto ? N.estadoIA(foto.EvidenciaID) : null;
+    var lp = ultimaLecturaParte(id);
+    var estado = !foto ? '' : est && est.estado === 'leyendo' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está leyendo su parte…</strong><div class="sub">Tarda unos segundos. Puede esperar aquí.</div></div></div>'
+      : !foto._srv ? '<div class="aviso">' + ic('cloudoff') + '<div>La foto se enviará cuando haya señal; luego la IA llenará el parte.</div></div>'
+      : (est && est.estado === 'error') || (N.lecturaDe(foto.EvidenciaID) || {}).Estado === 'ERROR' ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>La IA no pudo leer la foto.</strong><div class="sub">' + esc((est && est.msg) || '') + '</div><button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + foto.EvidenciaID + '">' + ic('refresh') + 'Reintentar</button></div></div>'
+      : lp ? '<div class="aviso">' + ic('checkc') + '<div><strong>La IA llenó el parte.</strong> Revise que esté bien. <a href="#/parte/' + id + '/ia">Ver lo que leyó</a></div></div>'
+      : N.iaLista() ? '<div class="aviso acento">' + ic('activity') + '<div>La IA leerá la foto en un momento…</div></div>' : '';
+    var acts = N.hijos('ACTIVIDADES', id).sort(function (a, b) { return R.relInicio(a.HoraInicio, t.HoraInicio) - R.relInicio(b.HoraInicio, t.HoraInicio); });
+    var vs = N.hijos('VIAJES', id), abs = N.hijos('ABASTECIMIENTOS', id), fs = N.filas('FALLAS', function (f) { return f.ParteID === id; });
+    var conViajes = ['VOLQUETE', 'CISTERNA'].indexOf(eq.Familia) >= 0 || vs.length;
+    var lect = [];
+    if (eq.TieneHorometro) lect.push(['HorometroInicial', 'Horómetro inicio'], ['HorometroFinal', 'Horómetro final']);
+    if (eq.TieneOdometro) lect.push(['OdometroInicial', 'Km inicio'], ['OdometroFinal', 'Km final']);
+    var l = R.lecturas(p, eq, cfg(), false);
+    var r = puedeEnviar(p);
+    var hs = hallazgosIA(p);
+    var h = '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3>' +
+      '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(t.Nombre || p.Turno) + '</div></div><a class="btn chico" href="#/parte/' + id + '/rapido/1">Cambiar</a></div>' +
+      // 1) la foto del parte de papel
+      (foto ? '<div class="uno-foto ok">' + botonFoto(p, 'PARTE_FISICO_FIRMADO', 'Foto del parte de papel') + '</div>'
+        : '<div class="uno-foto"><strong style="font-size:18px">Tómele foto a su parte de papel</strong><span class="sub">La IA llenará todo por usted.</span>' +
+          '<button type="button" class="btn primario enorme" data-a="foto" data-id="' + id + '" data-tipo="PARTE_FISICO_FIRMADO">' + ic('camera') + 'Tomar foto</button>' +
+          '<button type="button" class="btn chico" data-a="foto" data-modo="galeria" data-id="' + id + '" data-tipo="PARTE_FISICO_FIRMADO">' + ic('image') + 'Elegir de la galería</button></div>') +
+      estado +
+      // 2) lo que quedó registrado (se puede corregir aquí mismo)
+      '<div class="etiqueta-seccion">Datos del parte</div><div class="tarjeta uno-lista">' +
+      '<div class="dos">' + lect.map(function (x) {
+        return '<label class="campo"><span>' + x[1] + '</span><input name="' + x[0] + '" type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(p[x[0]]) + '" data-a2="lectura"></label>';
+      }).join('') + '</div>' +
+      (l.alertas.length || p.ExcepcionLectura ? '<div class="aviso acento">' + ic('alert') + '<div>' + esc(l.alertas.join(' ')) + '</div></div>' +
+        '<label class="check"><input type="checkbox" name="ExcepcionLectura" data-a2="lectura"' + (p.ExcepcionLectura ? ' checked' : '') + '><span>La lectura es correcta (explique)</span></label>' +
+        '<label class="campo"><textarea name="MotivoExcepcion" data-a2="lectura" placeholder="Ej.: se cambió el horómetro">' + esc(p.MotivoExcepcion) + '</textarea></label>' : '') +
+      '<div class="fila-dato"><span>Actividades</span><span>' + acts.length + '</span></div>' +
+      acts.map(function (a) {
+        return '<button type="button" class="fila-dato" style="background:none;border:0;border-bottom:1px solid var(--borde);color:inherit;text-align:left;width:100%;padding:6px 0" data-a="actForm" data-id="' + id + '" data-k="' + a.ActividadID + '">' +
+          '<span class="mini">' + a.HoraInicio + '–' + a.HoraFin + '</span><span class="mini">' + esc((catAct()[a.ActividadCatID] || {}).Nombre || '') + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</span></button>';
+      }).join('') +
+      '<button type="button" class="btn chico" data-a="actForm" data-id="' + id + '">' + ic('plus') + 'Agregar actividad</button>' +
+      (conViajes ? '<div class="fila-dato"><span>Viajes</span><span>' + vs.length + '</span></div><button type="button" class="btn chico" data-a="viajeForm" data-id="' + id + '">' + ic('truck') + 'Agregar viaje</button>' : '') +
+      '<div class="fila-dato"><span>Combustible</span><span>' + (abs.length ? abs.map(function (x) { return n1(x.Galones) + ' gal'; }).join(' + ') : p.SinAbastecimiento === true ? 'No hubo' : '—') + '</span></div>' +
+      (abs.length ? '' : '<label class="check"><input type="checkbox" data-a="sinAbast" data-id="' + id + '"' + (p.SinAbastecimiento === true ? ' checked' : '') + '><span>Hoy no hubo abastecimiento</span></label>' +
+        '<button type="button" class="btn chico" data-a="abastForm" data-id="' + id + '">' + ic('fuel') + 'Registrar combustible</button>') +
+      '<div class="fila-dato"><span>Fallas</span><span>' + fs.length + '</span></div>' +
+      '<button type="button" class="btn chico" data-a="fallaForm" data-id="' + id + '">' + ic('wrench') + '¿Hubo una falla? Repórtela</button>' +
+      (fs.length ? '<div class="lista">' + fs.map(function (f) { return botonFoto(p, 'FALLA', 'Foto de la falla: ' + f.Componente, { FallaID: f.FallaID }); }).join('') + '</div>' : '') +
+      '</div>' +
+      // 3) lo que falta, en rojo, y el botón de enviar
+      listaHallazgos(hs.filter(function (x) { return x.estado !== 'DUDOSO'; })) +
+      (r.ok ? '' : '<div class="aviso peligro">' + ic('alert') + '<div><strong>Falta para enviar:</strong><ul>' + r.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>') +
+      '<button type="button" class="btn primario ancho enorme" data-a="enviar" data-id="' + id + '"' + (r.ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'ENVIAR PARTE') + '</button>' +
+      (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div></div></div>' : '') +
+      '<p class="mini" style="text-align:center"><a href="#/parte/' + id + '/paso/4" data-a="detallado">Modo detallado</a> · ' + botonBorrarParte(p).replace('btn peligro ancho', 'btn chico fantasma') + '</p>';
+    marco(p.CodigoParte || 'Parte', '<form id="fUno" novalidate style="display:grid;gap:14px">' + h + '</form>', { volver: '#/inicio' });
+    var f = document.getElementById('fUno');
+    f.onchange = function (e) { if (e.target.dataset.a2 === 'lectura') guardarLecturasUno(id); };
+    hidratarFotos();
+  }
+  /** Guarda las lecturas escritas en la pantalla única (con las mismas validaciones). */
+  function guardarLecturasUno(id) {
+    var p = Object.assign({}, getParte(id));
+    document.querySelectorAll('#fUno [data-a2="lectura"]').forEach(function (el) {
+      if (el.type === 'checkbox') p[el.name] = el.checked;
+      else if (el.tagName === 'TEXTAREA') p[el.name] = el.value;
+      else p[el.name] = el.value === '' ? '' : Math.round(Number(el.value) * 100) / 100;
+    });
+    var l = R.lecturas(p, equipo(p.EquipoID), cfg(), false);
+    if (l.errores.length) { toast(l.errores[0]); return; }
+    if (R.num(p.HorometroInicial) !== null && R.num(p.HorometroFinal) !== null) p.HorasTrabajadas = Math.round((p.HorometroFinal - p.HorometroInicial) * 100) / 100;
+    if (R.num(p.OdometroInicial) !== null && R.num(p.OdometroFinal) !== null) p.KmRecorridos = Math.round((p.OdometroFinal - p.OdometroInicial) * 100) / 100;
+    guardarParte(p);
+    render();
+  }
+
   // ------------------------------------------------------------ modo rápido (3 pasos, con IA)
   var RAPIDO = ['Equipo y turno', 'Fotos y lecturas', 'Revisar y enviar'];
   var eleccion = {};  // fecha/turno elegidos en el paso 1 antes de guardar (para redibujar los equipos)
-  function modo(m) { try { if (m) sessionStorage.setItem('axion_modo', m); return sessionStorage.getItem('axion_modo') || 'rapido'; } catch (x) { return 'rapido'; } }
-  function rutaParte(id, n) { return modo() === 'detallado' ? '#/parte/' + id + '/paso/' + ({ 1: 1, 2: 3, 3: 8 }[n] || 4) : '#/parte/' + id + '/rapido/' + n; }
+  function modo(m) { try { if (m) sessionStorage.setItem('axion_modo', m); return sessionStorage.getItem('axion_modo') || 'uno'; } catch (x) { return 'uno'; } }
+  function rutaParte(id, n) {
+    if (modo() === 'detallado') return '#/parte/' + id + '/paso/' + ({ 1: 1, 2: 3, 3: 8 }[n] || 4);
+    if (modo() === 'rapido') return '#/parte/' + id + '/rapido/' + n;
+    return n === 1 ? '#/parte/' + id + '/rapido/1' : '#/parte/' + id + '/uno';
+  }
 
   var RAP = {
     1: function (p) { return PASO[1](p) + PASO[2](p); },
@@ -474,7 +564,7 @@
     var p = getParte(id);
     if (!p) { location.replace('#/inicio'); return; }
     if (p.Estado && !editable(p)) { location.replace('#/parte/' + id); return; }
-    modo('rapido');
+    if (!(n === 1 && modo() === 'uno')) modo('rapido');
     n = Math.max(1, Math.min(3, n));
     if (n > 1 && !p.AsignacionID) n = 1;
     var pv = n === 1 && eleccion[id] ? Object.assign({}, p, eleccion[id]) : p;
@@ -606,12 +696,17 @@
     var buenas = ev.filter(function (e) { return !e._error; });
     var malas = ev.filter(function (e) { return e._error; });
     var hecho = buenas.length > 0;
-    var datos = ' data-id="' + p.ParteID + '" data-tipo="' + tipo + '"' +
+    var varias = tipo === 'FALLA' || tipo === 'OTRO';  // de estas se pueden tomar varias; las demás se reemplazan
+    var puede = editable(p);
+    var datos = ' data-id="' + p.ParteID + '" data-tipo="' + tipo + '"' + (hecho && !varias ? ' data-reemplazar="1"' : '') +
       (extra.FallaID ? ' data-falla="' + extra.FallaID + '"' : '') + (extra.AbastecimientoID ? ' data-abast="' + extra.AbastecimientoID + '"' : '');
-    return '<div class="foto-req' + (hecho ? ' ok' : '') + '" style="flex-wrap:wrap">' + ic(hecho ? 'checkc' : 'camera') +
-      '<span class="crece">' + esc(texto) + (hecho ? ' · ' + buenas.length + ' foto(s)' + (buenas.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
-      '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto"' + datos + '>' + ic('camera') + (hecho ? 'Otra' : 'Cámara') + '</button>' +
-      '<button type="button" class="btn chico" data-a="foto" data-modo="galeria"' + datos + ' aria-label="Elegir foto de la galería">' + ic('image') + 'Galería</button>' +
+    var ultima = ev[ev.length - 1];
+    return '<div class="foto-req' + (hecho ? ' ok' : '') + '" style="flex-wrap:wrap">' +
+      (hecho ? '<button type="button" class="miniatura" data-a="verFoto" data-k="' + buenas[buenas.length - 1].EvidenciaID + '" data-foto="' + buenas[buenas.length - 1].EvidenciaID + '" aria-label="Ver la foto">' + ic('image') + '</button>' : ic('camera')) +
+      '<span class="crece">' + esc(texto) + (hecho ? ' · ' + (varias ? buenas.length + ' foto(s)' : 'lista') + (buenas.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
+      (puede ? '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto"' + datos + '>' + ic('camera') + (hecho ? (varias ? 'Otra' : 'Cambiar') : 'Cámara') + '</button>' +
+        '<button type="button" class="btn chico" data-a="foto" data-modo="galeria"' + datos + ' aria-label="Elegir foto de la galería">' + ic('image') + 'Galería</button>' +
+        (ultima ? '<button type="button" class="btn chico fantasma" data-a="borrarFoto" data-k="' + ultima.EvidenciaID + '" aria-label="Borrar la foto">' + ic('trash') + '</button>' : '') : '') +
       (malas.length ? '<div class="msg-error" style="width:100%">' + ic('alert') + '<span>Foto rechazada: ' + esc(malas[0]._error) + '</span></div>' : '') +
       (buenas.length ? cajaIA(p, buenas[buenas.length - 1], extra) : '') + '</div>';
   }
@@ -1224,6 +1319,109 @@
   }
 
   // ------------------------------------------------------------ eventos
+  function resumenAplicado(ap) {
+    return 'Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' +
+      (ap.abastecimiento ? ', ' + n1(ap.abastecimiento.Galones) + ' gal de combustible' : ap.sinAbastecimiento ? ', sin abastecimiento' : '') +
+      (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : '');
+  }
+  /** Lo que registraría la IA sin que nadie marque nada (modo automático): solo lo legible y coherente. */
+  function marcasAuto(p, r) {
+    var ok = function (c) { return c === 'ALTA' || c === 'MEDIA'; };
+    var abs = N.hijos('ABASTECIMIENTOS', p.ParteID);
+    return function (n) {
+      var m = n.match(/^(lec|act|via)_(.+)$/);
+      if (m && m[1] === 'lec') return R.valorIA(r[m[2].replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()]) !== null && R.num(p[m[2]]) === null;
+      if (m && m[1] === 'act') { var a = (r.actividades || [])[Number(m[2])]; return !!a && ok(a.confianza) && !!actividadIA(a, p).fila; }
+      if (m && m[1] === 'via') { var v = (r.viajes || [])[Number(m[2])]; return !!v && ok(v.confianza) && !!viajeIA(v).fila; }
+      if (n === 'obs') return !!(r.observaciones && r.observaciones.texto) && !p.ObservacionOperador;
+      if (n === 'comb') { var x = abastIA(p, r); return !!(x && x.fila) && !abs.length && ok(r.combustible.confianza); }
+      if (n === 'sinab') return (!r.combustible || (!r.combustible.texto && R.num(r.combustible.galones) === null)) && !abs.length && p.SinAbastecimiento !== true;
+      return false;
+    };
+  }
+  /** Borra una foto (y deshace lo que la IA registró con ella, para que la foto nueva no lo duplique). */
+  function quitarFoto(evId) {
+    N.filas('LECTURAS_IA', function (l) { return l.EvidenciaID === evId; }).forEach(deshacerIA);
+    N.eliminar('EVIDENCIAS', evId);
+  }
+  /** Deshace lo que registró una lectura de la IA (al cambiar o borrar la foto del parte), para no duplicar. */
+  function deshacerIA(l) {
+    if (!l || l.Estado !== 'CONFIRMADA' || !l.Aplicado) return;
+    var ap; try { ap = JSON.parse(l.Aplicado); } catch (e) { return; }
+    (ap.actividades || []).forEach(function (a) { if (N.fila('ACTIVIDADES', a.ActividadID)) N.eliminar('ACTIVIDADES', a.ActividadID); });
+    (ap.viajes || []).forEach(function (v) { if (N.fila('VIAJES', v.ViajeID)) N.eliminar('VIAJES', v.ViajeID); });
+    if (ap.abastecimiento && N.fila('ABASTECIMIENTOS', ap.abastecimiento.AbastecimientoID)) N.eliminar('ABASTECIMIENTOS', ap.abastecimiento.AbastecimientoID);
+    var p = Object.assign({}, getParte(l.ParteID)), cambio = false;
+    Object.keys(ap.lecturas || {}).forEach(function (k) {
+      if (Number(p[k]) === Number(ap.lecturas[k].ahora)) { p[k] = ap.lecturas[k].antes === undefined ? '' : ap.lecturas[k].antes; cambio = true; }
+    });
+    if (ap.sinAbastecimiento && p.SinAbastecimiento === true) { p.SinAbastecimiento = false; cambio = true; }
+    if (cambio) guardarParte(p);
+  }
+  /** Modo automático: cada lectura nueva del parte de papel se registra sola en sus borradores. */
+  var autoHecho = {};
+  function autoAplicarIA() {
+    if (cfg().IA_AUTOAPLICAR === 'NO' || !perfil() || !perfil().OperadorID) return;
+    N.filas('LECTURAS_IA', function (l) { return l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && l.Estado === 'PROCESADA' && !autoHecho[l.LecturaID]; }).forEach(function (l) {
+      var p = getParte(l.ParteID);
+      if (!p || !editable(p) || ultimaLecturaParte(p.ParteID) !== l) return;
+      autoHecho[l.LecturaID] = true;
+      var ap = aplicarIA(l.ParteID, l.LecturaID, marcasAuto(Object.assign({}, p), R.resultadoIA(l) || {}), true);
+      if (ap && new RegExp(l.ParteID).test(location.hash)) toast('La IA llenó el parte. ' + resumenAplicado(ap));
+    });
+  }
+
+  /** Registra lo que leyó la IA según las marcas (pantalla de revisión) o solo (modo automático). Devuelve lo aplicado. */
+  function aplicarIA(id, lecturaID, marca, auto) {
+      var l = N.fila('LECTURAS_IA', lecturaID);
+      var r = R.resultadoIA(l);
+      var p = Object.assign({}, getParte(id));
+      if (!r || !editable(p)) return null;
+      var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [], auto: !!auto };
+      ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
+        var c = r[k.replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()];
+        if (marca('lec_' + k) && R.valorIA(c) !== null) { ap.lecturas[k] = { antes: p[k], ahora: Number(R.valorIA(c)) }; p[k] = Number(R.valorIA(c)); }
+      });
+      if (R.num(p.HorometroInicial) !== null && R.num(p.HorometroFinal) !== null) p.HorasTrabajadas = Math.round((p.HorometroFinal - p.HorometroInicial) * 100) / 100;
+      if (R.num(p.OdometroInicial) !== null && R.num(p.OdometroFinal) !== null) p.KmRecorridos = Math.round((p.OdometroFinal - p.OdometroInicial) * 100) / 100;
+      if (marca('obs') && r.observaciones && r.observaciones.texto) {
+        p.ObservacionOperador = (p.ObservacionOperador ? p.ObservacionOperador + '\n' : '') + 'Parte de papel: ' + r.observaciones.texto;
+        ap.observaciones = true;
+      }
+      var xab = abastIA(p, r);
+      if (marca('comb') && xab && xab.fila) {
+        var ab = Object.assign({ AbastecimientoID: N.nuevoID('ABA') }, xab.fila);
+        ap.abastecimiento = { AbastecimientoID: ab.AbastecimientoID, Galones: ab.Galones };
+        if (p.SinAbastecimiento === true) p.SinAbastecimiento = false;
+      }
+      if (marca('sinab')) { p.SinAbastecimiento = true; ap.sinAbastecimiento = true; }
+      if (Object.keys(ap.lecturas).length || ap.observaciones || ap.abastecimiento || ap.sinAbastecimiento) guardarParte(p);
+      if (ap.abastecimiento) N.guardar('ABASTECIMIENTOS', ab);
+      var t = turno(p.Turno);
+      var acts = N.hijos('ACTIVIDADES', id);
+      (r.actividades || []).forEach(function (a, i) {
+        if (!marca('act_' + i)) return;
+        var x = actividadIA(a, p);
+        var fila = Object.assign({ ActividadID: N.nuevoID('ACT'), ParteID: id }, x.fila);
+        var al = R.alertasActividades(acts.concat([fila]), t, catAct(), cfg())[fila.ActividadID];
+        if (al && al !== 'Falta la cantidad producida') { ap.omitidos.push('Actividad ' + (i + 1) + ': ' + al); return; }
+        N.guardar('ACTIVIDADES', fila);
+        acts.push(fila);
+        ap.actividades.push({ indice: i, ActividadID: fila.ActividadID });
+      });
+      var nro = N.hijos('VIAJES', id).reduce(function (m, v) { return Math.max(m, Number(v.NumeroViaje) || 0); }, 0);
+      (r.viajes || []).forEach(function (v, i) {
+        if (!marca('via_' + i)) return;
+        var x = viajeIA(v);
+        if (R.relFin(x.fila.HoraLlegada, t.HoraInicio) <= R.relInicio(x.fila.HoraSalida, t.HoraInicio)) { ap.omitidos.push('Viaje ' + (i + 1) + ': la llegada no es posterior a la salida'); return; }
+        var fila = Object.assign({ ViajeID: N.nuevoID('VIA'), ParteID: id, NumeroViaje: ++nro }, x.fila);
+        N.guardar('VIAJES', fila);
+        ap.viajes.push({ indice: i, ViajeID: fila.ViajeID });
+      });
+      N.guardar('LECTURAS_IA', { LecturaID: l.LecturaID, ParteID: id, Estado: 'CONFIRMADA', Aplicado: JSON.stringify(ap) });
+      return ap;
+  }
+
   var ACC = {
     volver: function (b) { location.hash = b.dataset.h; },
     ir: function (b) {
@@ -1245,7 +1443,7 @@
       var err = guardarRapido(b.dataset.id, Number(b.dataset.p));
       if (err) { toast(err); return; }
       olvidarEscrito();
-      location.hash = '#/parte/' + b.dataset.id + '/rapido/' + (Number(b.dataset.p) + 1);
+      location.hash = Number(b.dataset.p) === 1 && modo() === 'uno' ? '#/parte/' + b.dataset.id + '/uno' : '#/parte/' + b.dataset.id + '/rapido/' + (Number(b.dataset.p) + 1);
     },
     rapAnt: function (b) { guardarRapido(b.dataset.id, Number(b.dataset.p)); location.hash = '#/parte/' + b.dataset.id + '/rapido/' + (Number(b.dataset.p) - 1); },
     detallado: function (b) {
@@ -1268,7 +1466,8 @@
     },
     pasoAnt: function (b) { guardarPaso(b.dataset.id, Number(b.dataset.p)); location.hash = '#/parte/' + b.dataset.id + '/paso/' + (Number(b.dataset.p) - 1); },
     enviar: function (b) {
-      var err = guardarPaso(b.dataset.id, 8);
+      // el comentario se guarda solo si está en pantalla (en la pantalla única no hay campo y no se debe borrar)
+      var err = document.querySelector('#fPaso [name="ObservacionOperador"]') ? guardarPaso(b.dataset.id, 8) : null;
       if (err) { toast(err); return; }
       var p = getParte(b.dataset.id);
       var acc = p.Estado === 'OBSERVADO' ? 'CORREGIR' : 'ENVIAR';
@@ -1322,59 +1521,13 @@
       if (d && r.fallas) d.value = r.fallas.texto || '';
     },
     iaAplicar: function (b) {
-      var id = b.dataset.id;
-      var l = N.fila('LECTURAS_IA', b.dataset.l);
-      var r = R.resultadoIA(l);
-      var p = Object.assign({}, getParte(id));
-      if (!r || !editable(p)) return;
       var marca = function (n) { var el = document.querySelector('#fIA [name="' + n + '"]'); return !!(el && el.checked); };
-      var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [] };
-      ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
-        var c = r[k.replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()];
-        if (marca('lec_' + k) && R.valorIA(c) !== null) { ap.lecturas[k] = { antes: p[k], ahora: Number(R.valorIA(c)) }; p[k] = Number(R.valorIA(c)); }
-      });
-      if (R.num(p.HorometroInicial) !== null && R.num(p.HorometroFinal) !== null) p.HorasTrabajadas = Math.round((p.HorometroFinal - p.HorometroInicial) * 100) / 100;
-      if (R.num(p.OdometroInicial) !== null && R.num(p.OdometroFinal) !== null) p.KmRecorridos = Math.round((p.OdometroFinal - p.OdometroInicial) * 100) / 100;
-      if (marca('obs') && r.observaciones && r.observaciones.texto) {
-        p.ObservacionOperador = (p.ObservacionOperador ? p.ObservacionOperador + '\n' : '') + 'Parte de papel: ' + r.observaciones.texto;
-        ap.observaciones = true;
-      }
-      var xab = abastIA(p, r);
-      if (marca('comb') && xab && xab.fila) {
-        var ab = Object.assign({ AbastecimientoID: N.nuevoID('ABA') }, xab.fila);
-        ap.abastecimiento = { AbastecimientoID: ab.AbastecimientoID, Galones: ab.Galones };
-        if (p.SinAbastecimiento === true) p.SinAbastecimiento = false;
-      }
-      if (marca('sinab')) { p.SinAbastecimiento = true; ap.sinAbastecimiento = true; }
-      if (Object.keys(ap.lecturas).length || ap.observaciones || ap.abastecimiento || ap.sinAbastecimiento) guardarParte(p);
-      if (ap.abastecimiento) N.guardar('ABASTECIMIENTOS', ab);
-      var t = turno(p.Turno);
-      var acts = N.hijos('ACTIVIDADES', id);
-      (r.actividades || []).forEach(function (a, i) {
-        if (!marca('act_' + i)) return;
-        var x = actividadIA(a, p);
-        var fila = Object.assign({ ActividadID: N.nuevoID('ACT'), ParteID: id }, x.fila);
-        var al = R.alertasActividades(acts.concat([fila]), t, catAct(), cfg())[fila.ActividadID];
-        if (al && al !== 'Falta la cantidad producida') { ap.omitidos.push('Actividad ' + (i + 1) + ': ' + al); return; }
-        N.guardar('ACTIVIDADES', fila);
-        acts.push(fila);
-        ap.actividades.push({ indice: i, ActividadID: fila.ActividadID });
-      });
-      var nro = N.hijos('VIAJES', id).reduce(function (m, v) { return Math.max(m, Number(v.NumeroViaje) || 0); }, 0);
-      (r.viajes || []).forEach(function (v, i) {
-        if (!marca('via_' + i)) return;
-        var x = viajeIA(v);
-        if (R.relFin(x.fila.HoraLlegada, t.HoraInicio) <= R.relInicio(x.fila.HoraSalida, t.HoraInicio)) { ap.omitidos.push('Viaje ' + (i + 1) + ': la llegada no es posterior a la salida'); return; }
-        var fila = Object.assign({ ViajeID: N.nuevoID('VIA'), ParteID: id, NumeroViaje: ++nro }, x.fila);
-        N.guardar('VIAJES', fila);
-        ap.viajes.push({ indice: i, ViajeID: fila.ViajeID });
-      });
-      N.guardar('LECTURAS_IA', { LecturaID: l.LecturaID, ParteID: id, Estado: 'CONFIRMADA', Aplicado: JSON.stringify(ap) });
+      var ap = aplicarIA(b.dataset.id, b.dataset.l, marca);
+      if (!ap) return;
       iaSel = {};
-      toast('Registrado: ' + ap.actividades.length + ' actividad(es), ' + ap.viajes.length + ' viaje(s)' +
-        (ap.abastecimiento ? ', ' + n1(ap.abastecimiento.Galones) + ' gal de combustible' : ap.sinAbastecimiento ? ', sin abastecimiento' : '') +
-        (ap.omitidos.length ? ' · ' + ap.omitidos.length + ' omitido(s): revíselos' : ''));
-      location.hash = modo() === 'detallado' ? '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4) : '#/parte/' + id + '/rapido/' + (Object.keys(ap.lecturas).length ? 2 : 3);
+      toast(resumenAplicado(ap));
+      var id = b.dataset.id;
+      location.hash = modo() === 'uno' ? '#/parte/' + id + '/uno' : modo() === 'detallado' ? '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4) : '#/parte/' + id + '/rapido/' + (Object.keys(ap.lecturas).length ? 2 : 3);
     },
     borrarParte: function (b) {
       var p = getParte(b.dataset.id);
@@ -1388,8 +1541,20 @@
         if (location.hash === '#/inicio') render(); else location.hash = '#/inicio';
       });
     },
+    borrarFoto: function (b) {
+      confirmar('Borrar foto', 'Se borrará esta foto' + (N.lecturaDe(b.dataset.k) ? ' y lo que la IA registró con ella' : '') + '.', 'Borrar', true).then(function (si) {
+        if (!si) return;
+        quitarFoto(b.dataset.k);
+        toast('Foto borrada');
+        render();
+      });
+    },
     foto: function (b) {
       fotoMeta = { ParteID: b.dataset.id, TipoEvidencia: b.dataset.tipo, FallaID: b.dataset.falla || '', AbastecimientoID: b.dataset.abast || '' };
+      // "Cambiar": la foto anterior de ese tipo se borra recién cuando llega la nueva (si cancela la cámara, no se pierde nada)
+      if (b.dataset.reemplazar) fotoMeta.reemplazar = N.hijos('EVIDENCIAS', b.dataset.id).filter(function (e) {
+        return e.TipoEvidencia === b.dataset.tipo && (!b.dataset.abast || e.AbastecimientoID === b.dataset.abast);
+      }).map(function (e) { return e.EvidenciaID; });
       // si el sistema cierra la app al abrir la cámara (pasa en Android con poca memoria), al volver se avisa
       try { sessionStorage.setItem('axion_foto_pend', JSON.stringify({ meta: fotoMeta, hash: location.hash, t: Date.now() })); } catch (x) { /* nada */ }
       var inp = document.getElementById(b.dataset.modo === 'galeria' ? 'galeria' : 'camara');
@@ -1446,8 +1611,10 @@
     if (!p) { toast('El parte ya no está en este celular. Vuelva a abrirlo y tome la foto otra vez.'); return; }
     var sello = 'AXION · ' + (p.CodigoParte || '') + ' · ' + fF(R.enLima(Date.now()).fecha) + ' ' + R.enLima(Date.now()).hora;
     toast('Procesando foto…');
-    comprimir(file, sello, meta.TipoEvidencia).then(function (url) { return N.foto(meta, url); })
-      .then(function () { toast('Foto guardada'); render(); }, function (err) { toast(err.message); });
+    var reemplazar = meta.reemplazar || [];
+    var metaFoto = Object.assign({}, meta); delete metaFoto.reemplazar;
+    comprimir(file, sello, meta.TipoEvidencia).then(function (url) { return N.foto(metaFoto, url); })
+      .then(function () { reemplazar.forEach(quitarFoto); toast(reemplazar.length ? 'Foto cambiada' : 'Foto guardada'); render(); }, function (err) { toast(err.message); });
   }
   document.getElementById('camara').addEventListener('change', alElegirFoto);
   document.getElementById('galeria').addEventListener('change', alElegirFoto);
@@ -1510,6 +1677,7 @@
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
     if (r[1] === 'parte' && r[3] === 'ia') return vIA(r[2]);
     if (r[1] === 'parte' && r[3] === 'rapido') return vRapido(r[2], Number(r[4]));
+    if (r[1] === 'parte' && r[3] === 'uno') return vUno(r[2]);
     if (r[1] === 'parte' && r[2]) return vDetalle(r[2]);
     if (r[1] === 'falla' && r[2]) return vFalla(r[2]);
     if (r[1] === 'partes' && esOp) return vMisPartes();
@@ -1533,8 +1701,12 @@
   N.alCambiar(function () {
     clearTimeout(tRender);
     tRender = setTimeout(function () {
+      autoAplicarIA();  // lo que la IA terminó de leer se registra solo
       // en el formulario no se redibuja: se perdería lo escrito y aún no guardado
       if (document.getElementById('fPaso') || dlg.open) { refrescarChip(); refrescarIA(); return; }
+      // en la pantalla única tampoco mientras se escribe una lectura
+      var foco = document.activeElement;
+      if (document.getElementById('fUno') && foco && /INPUT|TEXTAREA/.test(foco.tagName)) { refrescarChip(); return; }
       render();
     }, 120);
   });
