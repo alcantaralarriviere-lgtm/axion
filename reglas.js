@@ -32,6 +32,7 @@ var Reglas = (function () {
 
   /** Horas desde el inicio del turno (resuelve el cruce de medianoche). */
   function relInicio(hora, inicioTurno) {
+    if (vacio(hora)) return 0;  // el parte de papel no siempre trae horas
     var r = ((minutos(hora) - minutos(inicioTurno)) % 1440 + 1440) % 1440;
     return r / 60;
   }
@@ -59,20 +60,22 @@ var Reglas = (function () {
     return { fecha: m < 420 ? sumarDias(l.fecha, -1) : l.fecha, turno: (m >= 420 && m < 1140) ? 'DIA' : 'NOCHE' };
   }
 
-  /** Validación de lecturas. Devuelve {errores:[], alertas:[]}. errores bloquean; alertas exigen excepción. */
+  /** Validación de lecturas. Devuelve {errores:[], alertas:[]}. errores bloquean; alertas solo avisan al revisor. */
   function lecturas(p, equipo, cfg, final) {
     var e = [], a = [];
     // la comparación con la "última lectura recibida" solo vale mientras el parte aún no llegó al servidor
     if (!vacio(p.FechaRecepcionServidor)) equipo = Object.assign({}, equipo, { UltimoHorometro: '', UltimoOdometro: '' });
     var hi = num(p.HorometroInicial), hf = num(p.HorometroFinal);
     var oi = num(p.OdometroInicial), of = num(p.OdometroFinal);
+    // equipo con horómetro y odómetro: basta un par completo (el parte de papel no siempre trae los dos)
+    var exigir = final && !(equipo.TieneHorometro && equipo.TieneOdometro && ((hi !== null && hf !== null) || (oi !== null && of !== null)));
     if (equipo.TieneHorometro) {
-      if (hi === null) { if (final) e.push('Falta el horómetro inicial.'); }
+      if (hi === null) { if (exigir) e.push('Falta el horómetro inicial.'); }
       else if (hi < 0) e.push('El horómetro no puede ser negativo.');
-      if (final && hf === null) e.push('Falta el horómetro final.');
+      if (exigir && hf === null) e.push('Falta el horómetro final.');
       if (hi !== null && hf !== null) {
         if (hf < hi) e.push('El horómetro final no puede ser menor que el inicial.');
-        else if (hf - hi > Number(cfg.MAX_HORAS_TURNO)) e.push('Las horas superan el máximo por turno (' + cfg.MAX_HORAS_TURNO + ' h).');
+        else if (hf - hi > Number(cfg.MAX_HORAS_TURNO)) a.push('Las horas superan el máximo por turno (' + cfg.MAX_HORAS_TURNO + ' h).');
       }
       if (hi !== null && num(equipo.UltimoHorometro) !== null && equipo.UltimaLecturaParteID !== p.ParteID &&
           Math.abs(hi - Number(equipo.UltimoHorometro)) > Number(cfg.TOL_SALTO_HOROMETRO_H)) {
@@ -80,12 +83,12 @@ var Reglas = (function () {
       }
     }
     if (equipo.TieneOdometro) {
-      if (oi === null) { if (final) e.push('Falta el odómetro inicial.'); }
+      if (oi === null) { if (exigir) e.push('Falta el odómetro inicial.'); }
       else if (oi < 0) e.push('El odómetro no puede ser negativo.');
-      if (final && of === null) e.push('Falta el odómetro final.');
+      if (exigir && of === null) e.push('Falta el odómetro final.');
       if (oi !== null && of !== null) {
         if (of < oi) e.push('El odómetro final no puede ser menor que el inicial.');
-        else if (of - oi > Number(cfg.MAX_KM_TURNO)) e.push('Los km superan el máximo por turno (' + cfg.MAX_KM_TURNO + ' km).');
+        else if (of - oi > Number(cfg.MAX_KM_TURNO)) a.push('Los km superan el máximo por turno (' + cfg.MAX_KM_TURNO + ' km).');
       }
       if (oi !== null && num(equipo.UltimoOdometro) !== null && equipo.UltimaLecturaParteID !== p.ParteID &&
           Math.abs(oi - Number(equipo.UltimoOdometro)) > Number(cfg.TOL_SALTO_ODOMETRO_KM)) {
@@ -246,19 +249,33 @@ var Reglas = (function () {
     return out;
   }
 
+  /**
+   * Fila de ACTIVIDADES a partir de lo leído en el papel. Nunca se descarta nada: si la actividad no está en el
+   * catálogo va a "Otra actividad" con el texto literal; las horas y la cantidad quedan vacías si el papel no las trae.
+   */
+  function actividadDesdeIA(a, catalogo, otraID, inicioTurno, frenteID) {
+    var hora = function (h) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(h || '') ? h : ''; };
+    var c = catalogo[a.actividad_cat_id] || catalogo[otraID] || {};
+    var ini = hora(a.hora_inicio), fin = hora(a.hora_fin), cant = num(a.cantidad);
+    var dur = duracion(ini, fin, inicioTurno);
+    var unidades = ['m3', 'm2', 't', 'km', 'viaje', 'gal', 'und', 'h'];
+    return { ActividadCatID: c.ActividadCatID || '', HoraInicio: ini, HoraFin: fin, DuracionHoras: dur === null ? '' : dur,
+      CantidadProducida: cant === null ? '' : cant, Unidad: unidades.indexOf(a.unidad) >= 0 ? a.unidad : (cant === null ? '' : (c.UnidadPredeterminada || '')),
+      Descripcion: String(a.texto || '').substring(0, 250), FrenteID: frenteID,
+      Observaciones: 'Leído por IA del parte de papel' + (a.frente ? ' · frente/ubicación: ' + a.frente : '') + (CONF_OK.indexOf(a.confianza) < 0 ? ' · lectura dudosa' : '') };
+  }
+
   /** ¿Se puede ENVIAR? Devuelve {ok, faltan:[textos]} */
   function revisarEnvio(p, equipo, acts, turno, catalogo, evid, fallas, abast, cfg, lecturasIA) {
+    // El parte de papel es el documento: con su foto, lo que falte o no calce es un aviso para el revisor, no un bloqueo.
+    // Solo detienen el envío la foto, las lecturas y el frente.
     var faltan = [];
-    var l = lecturas(p, equipo, cfg, true);
-    faltan = faltan.concat(l.errores);
-    if (l.alertas.length && !(p.ExcepcionLectura === true && String(p.MotivoExcepcion || '').length >= 15))
-      faltan.push('Hay una alerta de lectura: marque la excepción y explique el motivo (mínimo 15 letras).');
+    var conFoto = evid.some(function (e) { return e.ParteID === p.ParteID && e.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && !e._error; });
+    faltan = faltan.concat(lecturas(p, equipo, cfg, true).errores);
     if (vacio(p.FrenteID)) faltan.push('Falta el frente.');
-    if (!acts.length) faltan.push('Registre al menos una actividad.');
-    var al = alertasActividades(acts, turno, catalogo, cfg);
-    Object.keys(al).forEach(function (k) { if (al[k]) faltan.push('Actividad: ' + al[k] + '.'); });
+    if (!acts.length && !conFoto) faltan.push('Tome la foto del parte de papel o registre una actividad.');
     fotosFaltantes(p, equipo, evid, fallas, abast, cfg).forEach(function (x) { faltan.push('Falta foto: ' + x + '.'); });
-    if (!abast.some(function (x) { return x.ParteID === p.ParteID; }) && p.SinAbastecimiento !== true)
+    if (!conFoto && !abast.some(function (x) { return x.ParteID === p.ParteID; }) && p.SinAbastecimiento !== true)
       faltan.push('Combustible: registre el abastecimiento o marque "Hoy no hubo abastecimiento".');
     var porConfirmar = (lecturasIA || []).filter(function (l) { return l.ParteID === p.ParteID && l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && l.Estado === 'PROCESADA'; });
     // con IA_AUTOAPLICAR = NO el operador debe confirmar a mano lo leído; por defecto se registra solo
@@ -315,7 +332,7 @@ var Reglas = (function () {
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
-    valorIA: valorIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA,
+    valorIA: valorIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
     estadoCumplimiento: estadoCumplimiento, accionesPermitidas: accionesPermitidas,
     ESTADO_DESTINO: ESTADO_DESTINO, REQUIERE_COMENTARIO: REQUIERE_COMENTARIO };
 })();

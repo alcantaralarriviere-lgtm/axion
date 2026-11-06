@@ -360,7 +360,7 @@
       return bannerIA + '<p class="sub">Registre cada actividad con su hora. Las horas productivas no son las del horómetro.</p>' +
         '<div class="lista">' + (acts.map(function (a) {
           var c = catAct()[a.ActividadCatID] || {};
-          return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(c.Nombre) + '</h3><div class="mini num">' + a.HoraInicio + '–' + a.HoraFin + ' · ' + n1(a.DuracionHoras) + ' h' + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div>' +
+          return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(a.Descripcion || c.Nombre || 'Actividad') + '</h3><div class="mini num">' + horasAct(a) + (a.DuracionHoras ? ' · ' + n1(a.DuracionHoras) + ' h' : '') + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div>' +
             (al[a.ActividadID] ? '<div class="msg-error">' + ic('alert') + esc(al[a.ActividadID]) + '</div>' : '') + (a._error ? '<div class="msg-error">' + ic('alert') + esc(a._error) + '</div>' : '') + '</div>' +
             '<div class="fila"><button type="button" class="btn chico fantasma" data-a="actForm" data-id="' + p.ParteID + '" data-k="' + a.ActividadID + '" aria-label="Editar actividad">' + ic('edit') + '</button>' +
             '<button type="button" class="btn chico fantasma" data-a="borrar" data-t="ACTIVIDADES" data-k="' + a.ActividadID + '" aria-label="Eliminar actividad">' + ic('trash') + '</button></div></div></div>';
@@ -499,7 +499,7 @@
       '<div class="fila-dato"><span>Actividades</span><span>' + acts.length + '</span></div>' +
       acts.map(function (a) {
         return '<button type="button" class="fila-dato" style="background:none;border:0;border-bottom:1px solid var(--borde);color:inherit;text-align:left;width:100%;padding:6px 0" data-a="actForm" data-id="' + id + '" data-k="' + a.ActividadID + '">' +
-          '<span class="mini">' + a.HoraInicio + '–' + a.HoraFin + '</span><span class="mini">' + esc((catAct()[a.ActividadCatID] || {}).Nombre || '') + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</span></button>';
+          '<span class="mini">' + horasAct(a) + '</span><span class="mini">' + esc(a.Descripcion || (catAct()[a.ActividadCatID] || {}).Nombre || '') + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</span></button>';
       }).join('') +
       '<button type="button" class="btn chico" data-a="actForm" data-id="' + id + '">' + ic('plus') + 'Agregar actividad</button>' +
       (conViajes ? '<div class="fila-dato"><span>Viajes</span><span>' + vs.length + '</span></div><button type="button" class="btn chico" data-a="viajeForm" data-id="' + id + '">' + ic('truck') + 'Agregar viaje</button>' : '') +
@@ -870,24 +870,21 @@
     var a = actID ? N.fila('ACTIVIDADES', actID) : null;
     var otras = N.hijos('ACTIVIDADES', parteID).filter(function (x) { return x.ActividadID !== actID; });
     var ultimo = otras.slice().sort(function (x, y) { return R.relFin(y.HoraFin, t.HoraInicio) - R.relFin(x.HoraFin, t.HoraInicio); })[0];
-    a = a || { ActividadCatID: '', HoraInicio: ultimo ? ultimo.HoraFin : t.HoraInicio, HoraFin: '', CantidadProducida: '', Unidad: '' };
+    a = a || { ActividadCatID: '', HoraInicio: ultimo ? ultimo.HoraFin : '', HoraFin: '', CantidadProducida: '', Unidad: '' };
     var cats = (cat().ACTIVIDADES_CAT || []).slice().sort(function (x, y) { return x.Nombre.localeCompare(y.Nombre); });
     hoja(actID ? 'Editar actividad' : 'Nueva actividad',
-      campo('Tipo de actividad', '<select name="ActividadCatID" required><option value="">Elija…</option>' + opciones(cats, a.ActividadCatID, 'ActividadCatID', 'Nombre') + '</select>', true) +
-      '<div class="dos">' + campo('Hora inicio', '<input name="HoraInicio" type="time" value="' + esc(a.HoraInicio) + '" required>', true) + campo('Hora fin', '<input name="HoraFin" type="time" value="' + esc(a.HoraFin) + '" required>', true) + '</div>' +
+      campo('¿Qué trabajo hizo?', '<input name="Descripcion" value="' + esc(a.Descripcion) + '" placeholder="Escríbalo como en su parte">', true) +
+      campo('Tipo (opcional)', '<select name="ActividadCatID"><option value="">Otra actividad</option>' + opciones(cats, a.ActividadCatID, 'ActividadCatID', 'Nombre') + '</select>') +
+      '<div class="dos">' + campo('Hora inicio', '<input name="HoraInicio" type="time" value="' + esc(a.HoraInicio) + '">') + campo('Hora fin', '<input name="HoraFin" type="time" value="' + esc(a.HoraFin) + '">') + '</div>' +
       '<div class="dos">' + campo('Cantidad producida', '<input name="CantidadProducida" type="number" inputmode="decimal" min="0" step="0.1" value="' + esc(a.CantidadProducida) + '">') +
-      campo('Unidad', '<select name="Unidad"><option value=""></option>' + ['m3', 'm2', 't', 'km', 'und', 'h'].map(function (u) { return '<option' + (u === a.Unidad ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>') + '</div>' +
-      campo('Descripción', '<input name="Descripcion" value="' + esc(a.Descripcion) + '">'),
+      campo('Unidad', '<select name="Unidad"><option value=""></option>' + ['m3', 'm2', 't', 'km', 'und', 'h'].map(function (u) { return '<option' + (u === a.Unidad ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>') + '</div>',
       function (v) {
-        var c = catAct()[v.ActividadCatID];
-        if (!c) return 'Elija el tipo de actividad.';
-        if (!v.HoraInicio || !v.HoraFin) return 'Indique hora de inicio y fin.';
+        var c = catAct()[v.ActividadCatID] || {};
+        if (!v.Descripcion && !c.ActividadCatID) return 'Escriba qué trabajo hizo.';
+        var dur = R.duracion(v.HoraInicio, v.HoraFin, t.HoraInicio);
         var fila = { ActividadID: actID || N.nuevoID('ACT'), ParteID: parteID, ActividadCatID: v.ActividadCatID, HoraInicio: v.HoraInicio, HoraFin: v.HoraFin,
           CantidadProducida: v.CantidadProducida === '' ? '' : Number(v.CantidadProducida), Unidad: v.Unidad || c.UnidadPredeterminada || '',
-          Descripcion: v.Descripcion, FrenteID: p.FrenteID, DuracionHoras: R.duracion(v.HoraInicio, v.HoraFin, t.HoraInicio) };
-        var al = R.alertasActividades(otras.concat([fila]), t, catAct(), cfg())[fila.ActividadID];
-        if (al && al !== 'Falta la cantidad producida') return al + '.';
-        if (c.RequiereCantidad && !(fila.CantidadProducida > 0)) return 'Esta actividad requiere la cantidad producida.';
+          Descripcion: v.Descripcion, FrenteID: p.FrenteID, DuracionHoras: dur === null ? '' : dur };
         N.guardar('ACTIVIDADES', fila);
         toast('Actividad guardada');
       });
@@ -972,17 +969,26 @@
   function marcaIA(nombre, porDefecto) { return nombre in iaSel ? iaSel[nombre] : porDefecto; }
   var HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
   var UNIDADES = ['m3', 'm2', 't', 'km', 'viaje', 'gal', 'und', 'h'];
-  /** Actividad leída lista para registrar (o el motivo por el que hay que completarla a mano). */
+  /** Actividad leída lista para registrar: se guarda siempre, tal como la escribió el operador. */
   function actividadIA(a, p) {
-    var c = catAct()[a.actividad_cat_id];
-    if (!c) return { falta: 'elija el tipo de actividad a mano' };
-    if (!HORA.test(a.hora_inicio || '') || !HORA.test(a.hora_fin || '')) return { falta: 'faltan horas legibles' };
-    var cant = R.num(a.cantidad);
-    if (c.RequiereCantidad && !(cant > 0)) return { falta: 'falta la cantidad' };
-    return { fila: { ActividadCatID: c.ActividadCatID, HoraInicio: a.hora_inicio, HoraFin: a.hora_fin, CantidadProducida: cant === null ? '' : cant,
-      Unidad: UNIDADES.indexOf(a.unidad) >= 0 ? a.unidad : (c.UnidadPredeterminada || ''), Descripcion: String(a.texto || '').substring(0, 250), FrenteID: p.FrenteID,
-      Observaciones: 'Leído por IA del parte de papel' + (a.frente ? ' · frente/ubicación: ' + a.frente : ''),
-      DuracionHoras: R.duracion(a.hora_inicio, a.hora_fin, turno(p.Turno).HoraInicio) } };
+    return { fila: R.actividadDesdeIA(a, catAct(), '', turno(p.Turno).HoraInicio, p.FrenteID) };
+  }
+  /** Horas de una actividad para mostrar (el parte de papel no siempre las trae). */
+  function horasAct(a) { return a.HoraInicio || a.HoraFin ? (a.HoraInicio || '?') + '–' + (a.HoraFin || '?') : 'sin hora'; }
+  /** Si el papel dice otra fecha o turno, manda el papel (solo en borradores y si no choca con otro parte). */
+  function corregirDesdePapel(p, r) {
+    if (p.Estado !== 'BORRADOR') return false;
+    var f = R.valorIA(r.fecha), tu = String(R.valorIA(r.turno) || '').toUpperCase();
+    var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
+    var fecha = /^\d{4}-\d{2}-\d{2}$/.test(f || '') && f <= hoy() && f >= min ? f : p.FechaTrabajo;
+    var tno = tu === 'DIA' || tu === 'NOCHE' ? tu : p.Turno;
+    if (fecha === p.FechaTrabajo && tno === p.Turno) return false;
+    var a = (cat().ASIGNACIONES || []).filter(function (x) { return x.EquipoID === p.EquipoID && x.OperadorID === p.OperadorID && x.Turno === tno && x.FechaInicio <= fecha; })[0];
+    if (!a) return false;
+    var choca = N.filas('PARTES_DIARIOS', function (x) { return x.ParteID !== p.ParteID && x.Estado !== 'ANULADO' && x.FechaTrabajo === fecha && x.Turno === tno && (x.EquipoID === p.EquipoID || x.OperadorID === p.OperadorID); }).length;
+    if (choca) return false;
+    p.FechaTrabajo = fecha; p.Turno = tno; p.AsignacionID = a.AsignacionID;
+    return true;
   }
   function viajeIA(v) {
     var m = busca('MATERIALES', 'MaterialID', v.material_id);
@@ -1151,7 +1157,7 @@
       '<dt>Enviado (celular)</dt><dd>' + fFH(p.FechaEnvio) + '</dd><dt>Recibido (servidor)</dt><dd>' + fFH(p.FechaRecepcionServidor) + '</dd>' + (sinPlazo() ? '' : '<dt>Plazo</dt><dd>' + fFH(p.FechaHoraLimite) + '</dd>') + '</dl></div>' +
       '<div class="etiqueta-seccion">Actividades (' + acts.length + ')</div><div class="lista">' + (acts.map(function (a) {
         var c = catAct()[a.ActividadCatID] || {};
-        return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(c.Nombre) + '</h3><div class="mini num">' + a.HoraInicio + '–' + a.HoraFin + ' · ' + n1(a.DuracionHoras) + ' h' + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div></div>' +
+        return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(a.Descripcion || c.Nombre || 'Actividad') + '</h3><div class="mini num">' + horasAct(a) + (a.DuracionHoras ? ' · ' + n1(a.DuracionHoras) + ' h' : '') + (a.CantidadProducida !== '' && a.CantidadProducida !== undefined ? ' · ' + n1(a.CantidadProducida) + ' ' + esc(a.Unidad) : '') + '</div></div>' +
           (al[a.ActividadID] ? '<span class="estado alerta">' + ic('alert') + esc(al[a.ActividadID]) + '</span>' : '') + '</div></div>';
       }).join('') || '<p class="mini">Sin actividades.</p>') + '</div>' +
       (vs.length ? '<div class="etiqueta-seccion">Viajes (' + vs.length + ')</div><div class="tarjeta"><div class="lista">' + vs.sort(function (a, b) { return a.NumeroViaje - b.NumeroViaje; }).map(function (v) {
@@ -1331,8 +1337,8 @@
     return function (n) {
       var m = n.match(/^(lec|act|via)_(.+)$/);
       if (m && m[1] === 'lec') return R.valorIA(r[m[2].replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()]) !== null && R.num(p[m[2]]) === null;
-      if (m && m[1] === 'act') { var a = (r.actividades || [])[Number(m[2])]; return !!a && ok(a.confianza) && !!actividadIA(a, p).fila; }
-      if (m && m[1] === 'via') { var v = (r.viajes || [])[Number(m[2])]; return !!v && ok(v.confianza) && !!viajeIA(v).fila; }
+      if (m && m[1] === 'act') { var a = (r.actividades || [])[Number(m[2])]; return !!(a && a.texto); }
+      if (m && m[1] === 'via') { var v = (r.viajes || [])[Number(m[2])]; return !!(v && (v.texto || viajeIA(v).fila)); }
       if (n === 'obs') return !!(r.observaciones && r.observaciones.texto) && !p.ObservacionOperador;
       if (n === 'comb') { var x = abastIA(p, r); return !!(x && x.fila) && !abs.length && ok(r.combustible.confianza); }
       if (n === 'sinab') return (!r.combustible || (!r.combustible.texto && R.num(r.combustible.galones) === null)) && !abs.length && p.SinAbastecimiento !== true;
@@ -1378,6 +1384,7 @@
       var p = Object.assign({}, getParte(id));
       if (!r || !editable(p)) return null;
       var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [], auto: !!auto };
+      if (auto && corregirDesdePapel(p, r)) ap.fechaTurno = p.FechaTrabajo + ' ' + p.Turno;
       ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
         var c = r[k.replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()];
         if (marca('lec_' + k) && R.valorIA(c) !== null) { ap.lecturas[k] = { antes: p[k], ahora: Number(R.valorIA(c)) }; p[k] = Number(R.valorIA(c)); }
@@ -1395,7 +1402,7 @@
         if (p.SinAbastecimiento === true) p.SinAbastecimiento = false;
       }
       if (marca('sinab')) { p.SinAbastecimiento = true; ap.sinAbastecimiento = true; }
-      if (Object.keys(ap.lecturas).length || ap.observaciones || ap.abastecimiento || ap.sinAbastecimiento) guardarParte(p);
+      if (Object.keys(ap.lecturas).length || ap.observaciones || ap.abastecimiento || ap.sinAbastecimiento || ap.fechaTurno) guardarParte(p);
       if (ap.abastecimiento) N.guardar('ABASTECIMIENTOS', ab);
       var t = turno(p.Turno);
       var acts = N.hijos('ACTIVIDADES', id);
@@ -1403,8 +1410,6 @@
         if (!marca('act_' + i)) return;
         var x = actividadIA(a, p);
         var fila = Object.assign({ ActividadID: N.nuevoID('ACT'), ParteID: id }, x.fila);
-        var al = R.alertasActividades(acts.concat([fila]), t, catAct(), cfg())[fila.ActividadID];
-        if (al && al !== 'Falta la cantidad producida') { ap.omitidos.push('Actividad ' + (i + 1) + ': ' + al); return; }
         N.guardar('ACTIVIDADES', fila);
         acts.push(fila);
         ap.actividades.push({ indice: i, ActividadID: fila.ActividadID });
@@ -1413,7 +1418,13 @@
       (r.viajes || []).forEach(function (v, i) {
         if (!marca('via_' + i)) return;
         var x = viajeIA(v);
-        if (R.relFin(x.fila.HoraLlegada, t.HoraInicio) <= R.relInicio(x.fila.HoraSalida, t.HoraInicio)) { ap.omitidos.push('Viaje ' + (i + 1) + ': la llegada no es posterior a la salida'); return; }
+        // viaje incompleto en el papel: no se pierde, queda como actividad con su texto
+        if (!x.fila || R.relFin(x.fila.HoraLlegada, t.HoraInicio) <= R.relInicio(x.fila.HoraSalida, t.HoraInicio)) {
+          var fv = Object.assign({ ActividadID: N.nuevoID('ACT'), ParteID: id }, actividadIA({ texto: v.texto || ((v.origen || '') + ' → ' + (v.destino || '')), hora_inicio: v.hora_salida, hora_fin: v.hora_llegada, cantidad: v.cantidad, unidad: v.unidad, confianza: v.confianza }, p).fila);
+          N.guardar('ACTIVIDADES', fv);
+          ap.actividades.push({ viaje: i, ActividadID: fv.ActividadID });
+          return;
+        }
         var fila = Object.assign({ ViajeID: N.nuevoID('VIA'), ParteID: id, NumeroViaje: ++nro }, x.fila);
         N.guardar('VIAJES', fila);
         ap.viajes.push({ indice: i, ViajeID: fila.ViajeID });
