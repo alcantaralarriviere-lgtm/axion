@@ -1323,10 +1323,20 @@
         : f.e === 'BORRADOR' ? '<span class="estado alerta">' + ic('clock') + 'Sin enviar</span>'
         : '<span class="estado peligro">' + ic('alert') + 'Sin parte</span>';
     };
+    var avisados = avisadosCumpl(diaCumpl);
     var tarjeta = function (f) {
       var det = f.todos.length ? f.todos.map(function (p) { return (equipo(p.EquipoID).CodigoInterno || p.EquipoID) + ' · ' + (p.Turno === 'DIA' ? 'Turno día' : 'Turno noche'); }).join(' / ') : 'No registró parte';
-      var inner = '<div class="entre"><div style="min-width:0"><h3>' + esc(f.o.Nombre || f.o.OperadorID) + '</h3><div class="mini">' + esc(det) + '</div></div>' + chipC(f) + '</div>';
-      return f.p ? '<a class="tarjeta tocable" href="#/parte/' + f.p.ParteID + '" style="display:block;color:inherit;text-decoration:none">' + inner + '</a>' : '<div class="tarjeta">' + inner + '</div>';
+      var nombre = esc(f.o.Nombre || f.o.OperadorID);
+      var inner = '<div class="entre"><div style="min-width:0"><h3>' + (f.p ? '<a href="#/parte/' + f.p.ParteID + '" style="color:inherit">' + nombre + '</a>' : nombre) + '</h3><div class="mini">' + esc(det) + '</div></div>' + chipC(f) + '</div>';
+      var wa = '';
+      if (f.e !== 'ENVIADO') {
+        var ya = avisados[f.o.OperadorID];
+        wa = f.o.Telefono
+          ? '<a class="btn chico ancho" style="margin-top:10px;background:#25D366;border-color:#25D366;color:#fff;font-weight:700" target="_blank" rel="noopener" data-a="avisar" data-k="' + f.o.OperadorID + '" href="' + esc(enlaceAviso(f, diaCumpl)) + '">' +
+            ic('send') + (ya ? 'Avisado ' + ya + ' · avisar otra vez' : 'Avisar por WhatsApp') + '</a>'
+          : '<div class="mini" style="margin-top:8px">Sin celular registrado</div>';
+      }
+      return '<div class="tarjeta">' + inner + wa + '</div>';
     };
     var orden = function (a, b) { return String(a.o.Nombre).localeCompare(String(b.o.Nombre)); };
     var seccion = function (titulo, l) { return l.length ? '<div class="etiqueta-seccion">' + titulo + ' (' + l.length + ')</div><div class="lista">' + l.sort(orden).map(tarjeta).join('') + '</div>' : ''; };
@@ -1346,6 +1356,32 @@
       seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
       seccion('Enviados · turno noche', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'NOCHE'; })) +
       (filas.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>No hay operadores registrados.</p></div>'));
+  }
+
+  /** Mensaje de WhatsApp listo para el operador que no envió su parte (mismo texto que el correo de las 19:30/07:30). */
+  function enlaceAviso(f, fecha) {
+    var app = location.origin + location.pathname.replace(/index\.html$/, '');
+    var dm = fF(fecha).substring(0, 5);
+    var t;
+    if (f.e === 'BORRADOR') {
+      var p = f.p, eq = equipo(p.EquipoID).CodigoInterno || '';
+      t = 'Hola ' + f.o.Nombre + ', tu parte diario del turno ' + (p.Turno === 'DIA' ? 'DÍA' : 'NOCHE') + ' del ' + dm + (eq ? ' (' + eq + ')' : '') +
+        ' está GUARDADO pero NO ENVIADO. Entra a la app AXION, abre el parte y pulsa ENVIAR: ' + app + ' Gracias.';
+    } else {
+      t = 'Hola ' + f.o.Nombre + ', no hemos recibido tu parte diario del ' + dm + '. Por favor envíalo hoy desde la app AXION: elige tu turno, la fecha y tu equipo, y toma la foto del parte: ' + app + ' Gracias.';
+    }
+    return 'https://wa.me/51' + f.o.Telefono + '?text=' + encodeURIComponent(t);
+  }
+  /** Quiénes ya fueron avisados ese día desde este celular (solo para que el administrador no repita). */
+  function avisadosCumpl(fecha, opID) {
+    var m = {};
+    try { m = JSON.parse(localStorage.getItem('axion_avisos') || '{}'); } catch (e) { m = {}; }
+    if (opID) {
+      Object.keys(m).forEach(function (k) { if (k < R.sumarDias(hoy(), -10)) delete m[k]; });
+      (m[fecha] = m[fecha] || {})[opID] = R.enLima(Date.now()).hora;
+      try { localStorage.setItem('axion_avisos', JSON.stringify(m)); } catch (e) { /* nada */ }
+    }
+    return m[fecha] || {};
   }
 
   function vCumplimientoEquipos() {
@@ -1705,6 +1741,7 @@
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
+    avisar: function (b) { avisadosCumpl(diaCumpl, b.dataset.k); setTimeout(render, 600); return true; },
     cerrarFalla: function (b) { formCerrarFalla(b.dataset.k); },
     descartar: function (b) { S().rechazados.splice(Number(b.dataset.i), 1); render(); },
     salir: function () {
@@ -1716,7 +1753,7 @@
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-a]');
     if (!b || b.disabled) return;
-    e.preventDefault();
+    if (b.dataset.a !== 'avisar') e.preventDefault();  // el aviso es un enlace real a WhatsApp: se deja abrir
     ACC[b.dataset.a](b, e);
   });
   document.addEventListener('change', function (e) {
