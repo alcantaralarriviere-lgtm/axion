@@ -301,6 +301,7 @@ var Reglas = (function () {
     if (!p || p.Estado === 'ANULADO') return [];
     if (ctx.esAdmin) {
       var a = [];
+      if (p.Estado === 'BORRADOR') a.push('ENVIAR');  // el operador lo dejó listo y olvidó enviarlo
       if (p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO') a.push('APROBAR', 'OBSERVAR');
       if (p.Estado !== 'APROBADO') a.push('EXCEPCION');
       if (p.Estado === 'APROBADO') a.push('REABRIR');

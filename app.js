@@ -1250,6 +1250,11 @@
     var botones = '';
     if (editable(p)) botones += '<a class="btn primario ancho" href="' + rutaParte(id, p.Estado === 'OBSERVADO' ? 2 : 3) + '">' + ic('edit') + (p.Estado === 'OBSERVADO' ? 'Corregir parte' : 'Continuar y enviar') + '</a>';
     botones += botonBorrarParte(p);
+    if (rol() === 'ADMIN' && p.Estado === 'BORRADOR') {
+      var pe = puedeEnviar(p);
+      botones += pe.ok ? '<button class="btn ancho primario" data-a="flujo" data-acc="ENVIAR" data-id="' + id + '">' + ic('send') + 'Enviar por el operador</button>'
+        : '<div class="aviso">' + ic('alert') + '<div><strong>Aún no se puede enviar por el operador.</strong><ul>' + pe.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>';
+    }
     var etiquetas = { APROBAR: ['checkc', 'primario', 'Aprobar'], OBSERVAR: ['alert', '', 'Observar'], EXCEPCION: ['check', '', 'Aceptar excepción de lectura'], ANULAR: ['x', 'peligro', 'Anular'], REABRIR: ['refresh', '', 'Reabrir'] };
     permitidas.filter(function (a) { return etiquetas[a] && (a !== 'EXCEPCION' || (p.ExcepcionLectura && !p.ExcepcionAutorizadaPor)); }).forEach(function (a) {
       var e = etiquetas[a];
@@ -1319,7 +1324,7 @@
 
   function flujo(id, acc) {
     var p = getParte(id);
-    var nombres = { APROBAR: 'Aprobar parte', OBSERVAR: 'Observar parte', EXCEPCION: 'Aceptar excepción de lectura', ANULAR: 'Anular parte', REABRIR: 'Reabrir parte aprobado' };
+    var nombres = { ENVIAR: 'Enviar por el operador', APROBAR: 'Aprobar parte', OBSERVAR: 'Observar parte', EXCEPCION: 'Aceptar excepción de lectura', ANULAR: 'Anular parte', REABRIR: 'Reabrir parte aprobado' };
     if (R.REQUIERE_COMENTARIO.indexOf(acc) >= 0) {
       hoja(nombres[acc], '<p class="sub">' + esc(p.CodigoParte) + '</p>' + campo(acc === 'OBSERVAR' ? 'Qué debe corregir el operador' : 'Motivo', '<textarea name="c" required></textarea>', true),
         function (v) {
@@ -1328,7 +1333,8 @@
           toast(nombres[acc] + ': enviado');
         }, acc === 'ANULAR' ? 'Anular' : 'Confirmar');
     } else {
-      confirmar(nombres[acc], '¿Confirma? Quedará registrado con su nombre y la hora del servidor.', acc === 'APROBAR' ? 'Aprobar' : 'Confirmar').then(function (si) {
+      confirmar(nombres[acc], acc === 'ENVIAR' ? 'Revise que la fecha (' + fF(p.FechaTrabajo) + '), el turno (' + p.Turno + ') y el equipo estén bien: después el operador ya no podrá cambiarlos. Quedará registrado que usted lo envió.'
+        : '¿Confirma? Quedará registrado con su nombre y la hora del servidor.', acc === 'APROBAR' ? 'Aprobar' : acc === 'ENVIAR' ? 'Enviar' : 'Confirmar').then(function (si) {
         if (si) { N.accion(p, acc, ''); toast('Enviado'); render(); }
       });
     }
@@ -1340,6 +1346,8 @@
       ['OBSERVADO', 'Observados', function (p) { return p.Estado === 'OBSERVADO'; }],
       ['ALERTAS', 'Excepciones', function (p) { return p.Estado !== 'ANULADO' && p.ExcepcionLectura === true && !p.ExcepcionAutorizadaPor; }],
       ['TODOS', 'Todos', function () { return true; }]];
+    // borradores completos que el operador olvidó enviar (solo el administrador los puede enviar por él)
+    if (rol() === 'ADMIN') filtros.splice(1, 0, ['LISTOS', 'Listos sin enviar', function (p) { return p.Estado === 'BORRADOR' && puedeEnviar(p).ok; }]);
     var f = filtros.filter(function (x) { return x[0] === filtroRevisar; })[0] || filtros[0];
     var buscando = !!String(busq.revisar || '').trim();
     var pasa = function (p) { return coincide('revisar', textoParte(p)); };
@@ -1353,7 +1361,14 @@
       }).join('') + '</div>' +
       (buscando ? '<p class="mini">' + l.length + ' resultado(s) en "' + esc(f[1]) + '". Para buscar en todos los partes elija "Todos".</p>' : '') +
       (l.length ? Object.keys(grupos).map(function (o) {
-        return '<div class="etiqueta-seccion">' + esc(nombreObra(o)) + '</div><div class="lista">' + grupos[o].slice(0, buscando ? 400 : 150).map(tarjetaParte).join('') + '</div>';
+        return '<div class="etiqueta-seccion">' + esc(nombreObra(o)) + '</div><div class="lista">' + grupos[o].slice(0, buscando ? 400 : 150).map(function (p) {
+          if (f[0] !== 'LISTOS') return tarjetaParte(p);
+          // si el papel no calza con la fecha, turno, equipo u operador, se avisa antes de enviar
+          var dudas = hallazgosIA(p).filter(function (h) { return h.estado === 'INCONSISTENTE'; });
+          return '<div style="display:grid;gap:6px">' + tarjetaParte(p) +
+            (dudas.length ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>Revíselo antes de enviar:</strong><ul>' + dudas.map(function (h) { return '<li>' + esc(h.mensaje) + '</li>'; }).join('') + '</ul></div></div>' : '') +
+            '<button class="btn chico ' + (dudas.length ? '' : 'primario') + '" data-a="flujo" data-acc="ENVIAR" data-id="' + p.ParteID + '">' + ic('send') + 'Enviar por el operador</button></div>';
+        }).join('') + '</div>';
       }).join('') : '<div class="vacio">' + ic(buscando ? 'alert' : 'checkc') + '<p>' + (buscando ? 'No se encontró nada con esa búsqueda.' : 'Nada pendiente aquí.') + '</p></div>'));
   }
 
