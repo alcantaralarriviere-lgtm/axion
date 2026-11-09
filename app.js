@@ -109,6 +109,36 @@
       '<main class="contenido" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
     hidratarFotos();
   }
+  // ------------------------------------------------------------ buscador (administrador y supervisor)
+  var busq = {}, busqTimer = null;
+  function normBusq(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[-_./]/g, ''); }
+  /** Barra de búsqueda: filtra por varias palabras a la vez (ej.: "exc 001", "torres", "09/11 noche"). */
+  function barraBusq(clave, ph) {
+    return '<div class="campo" style="position:sticky;top:0;z-index:2;background:var(--fondo)"><input type="search" data-busq="' + clave + '" value="' + esc(busq[clave] || '') + '" placeholder="' + esc(ph) + '"' +
+      ' aria-label="Buscar" autocomplete="off" style="font-size:16px;min-height:46px;padding-left:12px"></div>';
+  }
+  function coincide(clave, texto) {
+    var q = normBusq(busq[clave]).trim();
+    if (!q) return true;
+    var t = normBusq(texto);
+    return q.split(/\s+/).every(function (w) { return t.indexOf(w) >= 0; });
+  }
+  document.addEventListener('input', function (e) {
+    var k = e.target.dataset && e.target.dataset.busq;
+    if (!k) return;
+    busq[k] = e.target.value;
+    clearTimeout(busqTimer);
+    busqTimer = setTimeout(function () {
+      render();
+      var i = document.querySelector('[data-busq="' + k + '"]');
+      if (i) { i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (x) { /* nada */ } }
+    }, 250);
+  });
+  function textoParte(p) {
+    var eq = equipo(p.EquipoID);
+    return [p.CodigoParte, eq.CodigoInterno, eq.PlacaSerie, eq.Familia, nombreOp(p.OperadorID), fF(p.FechaTrabajo), p.FechaTrabajo, p.Turno, p.Turno === 'DIA' ? 'dia' : 'noche', p.Estado].join(' ');
+  }
+
   function obsCount() { return N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === perfil().OperadorID; }).length; }
   function porRevisarCount() { return N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO'; }).length; }
 
@@ -1311,16 +1341,20 @@
       ['ALERTAS', 'Excepciones', function (p) { return p.Estado !== 'ANULADO' && p.ExcepcionLectura === true && !p.ExcepcionAutorizadaPor; }],
       ['TODOS', 'Todos', function () { return true; }]];
     var f = filtros.filter(function (x) { return x[0] === filtroRevisar; })[0] || filtros[0];
-    var l = N.filas('PARTES_DIARIOS', f[2]).sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); });
+    var buscando = !!String(busq.revisar || '').trim();
+    var pasa = function (p) { return coincide('revisar', textoParte(p)); };
+    var l = N.filas('PARTES_DIARIOS', function (p) { return f[2](p) && pasa(p); }).sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); });
     var grupos = {};
     l.forEach(function (p) { (grupos[p.ObraID] = grupos[p.ObraID] || []).push(p); });
     marco(rol() === 'ADMIN' ? 'Revisión (administrador)' : 'Revisar partes',
+      barraBusq('revisar', 'Buscar equipo, operador, fecha o código…') +
       '<div class="segmento" role="group" aria-label="Filtro">' + filtros.map(function (x) {
-        return '<button type="button" data-a="filtro" data-v="' + x[0] + '" aria-pressed="' + (x[0] === f[0]) + '">' + x[1] + ' (' + N.filas('PARTES_DIARIOS', x[2]).length + ')</button>';
+        return '<button type="button" data-a="filtro" data-v="' + x[0] + '" aria-pressed="' + (x[0] === f[0]) + '">' + x[1] + ' (' + N.filas('PARTES_DIARIOS', function (p) { return x[2](p) && pasa(p); }).length + ')</button>';
       }).join('') + '</div>' +
+      (buscando ? '<p class="mini">' + l.length + ' resultado(s) en "' + esc(f[1]) + '". Para buscar en todos los partes elija "Todos".</p>' : '') +
       (l.length ? Object.keys(grupos).map(function (o) {
-        return '<div class="etiqueta-seccion">' + esc(nombreObra(o)) + '</div><div class="lista">' + grupos[o].slice(0, 150).map(tarjetaParte).join('') + '</div>';
-      }).join('') : '<div class="vacio">' + ic('checkc') + '<p>Nada pendiente aquí.</p></div>'));
+        return '<div class="etiqueta-seccion">' + esc(nombreObra(o)) + '</div><div class="lista">' + grupos[o].slice(0, buscando ? 400 : 150).map(tarjetaParte).join('') + '</div>';
+      }).join('') : '<div class="vacio">' + ic(buscando ? 'alert' : 'checkc') + '<p>' + (buscando ? 'No se encontró nada con esa búsqueda.' : 'Nada pendiente aquí.') + '</p></div>'));
   }
 
   /**
@@ -1366,7 +1400,10 @@
       return '<div class="tarjeta">' + inner + wa + '</div>';
     };
     var orden = function (a, b) { return String(a.o.Nombre).localeCompare(String(b.o.Nombre)); };
-    var seccion = function (titulo, l) { return l.length ? '<div class="etiqueta-seccion">' + titulo + ' (' + l.length + ')</div><div class="lista">' + l.sort(orden).map(tarjeta).join('') + '</div>' : ''; };
+    var pasa = function (f) {
+      return coincide('cumpl', [f.o.Nombre, f.o.Telefono, f.e === 'SIN' ? 'sin parte' : f.e === 'BORRADOR' ? 'sin enviar borrador' : 'enviado'].concat(f.todos.map(textoParte)).join(' '));
+    };
+    var seccion = function (titulo, l) { l = l.filter(pasa); return l.length ? '<div class="etiqueta-seccion">' + titulo + ' (' + l.length + ')</div><div class="lista">' + l.sort(orden).map(tarjeta).join('') + '</div>' : ''; };
     var domingo = new Date(diaCumpl + 'T12:00:00Z').getUTCDay() === 0;
     marco('Cumplimiento', '<div class="pasos">' + fechas.map(function (f) {
       return '<button type="button" data-a="dia" data-v="' + f + '"' + (f === diaCumpl ? ' aria-current="step"' : '') + '>' + fF(f).substring(0, 5) + '</button>';
@@ -1378,6 +1415,8 @@
       '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'BORRADOR'; }) + '</div><div class="l">Guardados sin enviar</div></div>' +
       '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'SIN'; }) + '</div><div class="l">Sin parte</div></div></div>' +
       (domingo ? '<div class="aviso">' + ic('calendar') + '<div>Domingo: solo hay turno día.</div></div>' : '') +
+      barraBusq('cumpl', 'Buscar operador o equipo…') +
+      (String(busq.cumpl || '').trim() && !filas.some(pasa) ? '<div class="vacio">' + ic('alert') + '<p>No se encontró nada con esa búsqueda.</p></div>' : '') +
       seccion('Sin parte', filas.filter(function (f) { return f.e === 'SIN'; })) +
       seccion('Guardado pero no enviado', filas.filter(function (f) { return f.e === 'BORRADOR'; })) +
       seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
@@ -1439,13 +1478,16 @@
   }
 
   function vFallas() {
-    var l = N.filas('FALLAS').sort(function (a, b) { return (a.Estado === 'CERRADA') - (b.Estado === 'CERRADA') || String(b.FechaHoraInicio).localeCompare(String(a.FechaHoraInicio)); });
-    marco('Fallas', l.length ? '<div class="lista">' + l.map(function (f) {
+    var l = N.filas('FALLAS', function (f) {
+      var eq = equipo(f.EquipoID);
+      return coincide('fallas', [f.CodigoFalla, eq.CodigoInterno, eq.PlacaSerie, f.Componente, f.Descripcion, f.Estado, busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre].join(' '));
+    }).sort(function (a, b) { return (a.Estado === 'CERRADA') - (b.Estado === 'CERRADA') || String(b.FechaHoraInicio).localeCompare(String(a.FechaHoraInicio)); });
+    marco('Fallas', barraBusq('fallas', 'Buscar equipo, componente o código…') + (l.length ? '<div class="lista">' + l.map(function (f) {
       var eq = equipo(f.EquipoID);
       return '<a class="tarjeta tocable" href="#/falla/' + f.FallaID + '" style="display:block;color:inherit;text-decoration:none"><div class="entre"><div><div class="codigo">' + esc(f.CodigoFalla) + '</div><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(f.Componente) + '</h3>' +
         '<div class="mini">' + esc(busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre) + ' · desde ' + fFH(f.FechaHoraInicio) + '</div></div>' +
         '<span class="estado ' + (f.Estado === 'CERRADA' ? 'ok' : 'alerta') + '">' + ic(f.Estado === 'CERRADA' ? 'checkc' : 'wrench') + esc(f.Estado) + '</span></div></a>';
-    }).join('') + '</div>' : '<div class="vacio">' + ic('wrench') + '<p>Sin fallas registradas.</p></div>');
+    }).join('') + '</div>' : '<div class="vacio">' + ic('wrench') + '<p>' + (String(busq.fallas || '').trim() ? 'No se encontró nada con esa búsqueda.' : 'Sin fallas registradas.') + '</p></div>'));
   }
 
   function vFalla(id) {
