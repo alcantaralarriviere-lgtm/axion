@@ -16,6 +16,8 @@
     cloud: '<path d="M7 18a5 5 0 1 1 1.2-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8H7z"/>',
     cloudoff: '<path d="M3 3l18 18"/><path d="M7 18a5 5 0 0 1-1.6-9.7M10 6.3A6 6 0 0 1 19 10a4 4 0 0 1 1.8 7.5"/>',
     camera: '<path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>',
     truck: '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
     fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h4"/>',
@@ -172,7 +174,65 @@
   }
 
   // ------------------------------------------------------------ operador: inicio
+  /** Turno y fecha que eligió el operador en Inicio (se recuerdan mientras la app esté abierta). */
+  function selInicio(nuevo) {
+    var s = null;
+    try { s = JSON.parse(sessionStorage.getItem('axion_ini') || 'null'); } catch (e) { s = null; }
+    if (!s) { var pr = R.proponer(Date.now()); s = { turno: pr.turno, fecha: pr.fecha }; }
+    if (nuevo) { s = Object.assign(s, nuevo); try { sessionStorage.setItem('axion_ini', JSON.stringify(s)); } catch (e) { /* nada */ } }
+    return s;
+  }
+
+  /** Inicio del operador en 3 toques: 1) turno, 2) fecha, 3) equipo → foto del parte. */
   function vInicio() {
+    var yo = perfil().OperadorID;
+    var mis = (cat().ASIGNACIONES || []).filter(function (a) { return a.OperadorID === yo; });
+    var turnosMios = ['DIA', 'NOCHE'].filter(function (t) { return mis.some(function (a) { return a.Turno === t; }); });
+    var s = selInicio();
+    if (turnosMios.length && turnosMios.indexOf(s.turno) < 0) s = selInicio({ turno: turnosMios[0] });
+    var max = hoy(), min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
+    if (s.fecha > max || s.fecha < min) s = selInicio({ fecha: R.proponer(Date.now()).fecha });
+    var paso = function (n, t) { return '<div class="etiqueta-seccion" style="font-size:14px">' + n + '. ' + t + '</div>'; };
+    var h = paso(1, '¿Qué turno trabajó?') + '<div class="dos">' + turnosMios.map(function (t) {
+      return '<button type="button" class="btn enorme ' + (t === s.turno ? 'primario' : '') + '" data-a="iniTurno" data-v="' + t + '" aria-pressed="' + (t === s.turno) + '">' +
+        ic(t === 'DIA' ? 'sun' : 'moon') + (t === 'DIA' ? 'DÍA' : 'NOCHE') + '</button>';
+    }).join('') + '</div>' +
+      paso(2, 'Fecha del parte') + '<label class="campo"><input id="iniFecha" type="date" value="' + s.fecha + '" min="' + min + '" max="' + max + '" style="font-size:18px;min-height:52px"></label>';
+    var hecho = N.filas('PARTES_DIARIOS', function (x) { return x.OperadorID === yo && x.FechaTrabajo === s.fecha && x.Turno === s.turno && x.Estado !== 'ANULADO'; })[0];
+    if (hecho) {
+      h += paso(3, 'Su parte de ese turno') + tarjetaParte(hecho) +
+        (editable(hecho) ? '<a class="btn primario ancho enorme" href="' + rutaParte(hecho.ParteID, 2) + '">' + ic('camera') + 'Continuar parte</a>' : '') + botonBorrarParte(hecho);
+    } else {
+      var usados = {};  // equipo que más recientemente usó: primero en la lista
+      N.filas('PARTES_DIARIOS', function (x) { return x.OperadorID === yo && x.Estado !== 'ANULADO'; }).forEach(function (x) {
+        if (!usados[x.EquipoID] || x.FechaTrabajo > usados[x.EquipoID]) usados[x.EquipoID] = x.FechaTrabajo;
+      });
+      var delTurno = mis.filter(function (a) { return a.Turno === s.turno && a.FechaInicio <= s.fecha && (!a.FechaFin || a.FechaFin >= s.fecha); })
+        .sort(function (a, b) { return String(usados[b.EquipoID] || '').localeCompare(String(usados[a.EquipoID] || '')) || String(equipo(a.EquipoID).CodigoInterno).localeCompare(String(equipo(b.EquipoID).CodigoInterno)); });
+      h += paso(3, '¿Qué equipo operó?') + (delTurno.length ? '<div class="lista">' + delTurno.map(function (a, i) {
+        var eq = equipo(a.EquipoID);
+        return '<a class="tarjeta tocable fila' + (i === 0 && usados[a.EquipoID] ? ' destacada' : '') + '" style="text-decoration:none;color:inherit;padding:12px 14px" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + s.fecha + '">' +
+          '<div class="icono-caja acento">' + ic(['VOLQUETE', 'CISTERNA', 'CISTERNA DE COMBUSTIBLE', 'CAMION BARANDA', 'CAMION GRUA'].indexOf(eq.Familia) >= 0 ? 'truck' : 'gauge') + '</div>' +
+          '<div class="crece"><h3>' + esc(eq.CodigoInterno) + '</h3><div class="mini">' + esc(eq.Familia) + ' · ' + esc(eq.Marca + ' ' + eq.Modelo) +
+          (usados[a.EquipoID] ? ' · último uso ' + fF(usados[a.EquipoID]) : '') + '</div></div>' + ic('camera') + '</a>';
+      }).join('') + '</div><p class="mini" style="text-align:center">Al tocar su equipo, tome la foto de su parte de papel.</p>'
+        : '<div class="vacio">' + ic('alert') + '<p>No tiene equipos autorizados en ese turno y fecha. Avise a su supervisor.</p></div>');
+    }
+    var obs = N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === yo; });
+    var avisos = obs.map(function (p) {
+      return '<a class="aviso acento" href="#/parte/' + p.ParteID + '" style="text-decoration:none;color:inherit">' + ic('alert') +
+        '<div><strong>Parte observado: ' + esc(p.CodigoParte) + '</strong><div class="sub">' + esc(p.Observaciones || '') + '</div></div></a>';
+    }).join('');
+    var pend = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === yo && p.Estado === 'BORRADOR' && !(p.FechaTrabajo === s.fecha && p.Turno === s.turno); });
+    var avisoPend = pend.length ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Tiene ' + pend.length + ' parte(s) guardado(s) sin enviar.</strong><div class="sub">Ábralos abajo, en "Últimos partes", y pulse ENVIAR.</div></div></div>' : '';
+    var rech = S().rechazados.length ? '<a class="aviso peligro" href="#/cuenta" style="color:inherit;text-decoration:none">' + ic('alert') + '<div><strong>' + S().rechazados.length + ' cambio(s) rechazado(s) por el servidor</strong><div class="sub">Toque para ver el motivo.</div></div></a>' : '';
+    marco('Inicio', '<div><div class="sub">Hola,</div><h1>' + esc(String(perfil().Nombre || '').replace('[DEMO] ', '')) + '</h1></div>' + rech + avisos + avisoPend +
+      (turnosMios.length ? h : '<div class="vacio">' + ic('alert') + '<p>No tiene equipos asignados. Avise a su supervisor.</p></div>') + ultimos());
+    var fi = document.getElementById('iniFecha');
+    if (fi) fi.onchange = function () { if (fi.value && fi.value >= min && fi.value <= max) { selInicio({ fecha: fi.value }); render(); } else toast('Elija una fecha entre ' + fF(min) + ' y ' + fF(max)); };
+  }
+
+  function vInicioAnterior() {
     var pr = R.proponer(Date.now());
     var mis = (cat().ASIGNACIONES || []).filter(function (a) { return a.OperadorID === perfil().OperadorID; });
     var turnosMios = Array.from(new Set(mis.map(function (a) { return a.Turno; })));
@@ -1236,7 +1296,59 @@
       }).join('') : '<div class="vacio">' + ic('checkc') + '<p>Nada pendiente aquí.</p></div>'));
   }
 
+  /**
+   * Cumplimiento por OPERADOR: cada operador activo debe un parte por día, de día o de noche (el que trabajó).
+   * Esperados = operadores en obra. Así el turno noche cuenta igual que el día.
+   */
   function vCumplimiento() {
+    var fechas = [];
+    for (var i = 0; i < 8; i++) fechas.push(R.sumarDias(hoy(), -i));
+    if (!diaCumpl || fechas.indexOf(diaCumpl) < 0) diaCumpl = R.proponer(Date.now()).fecha;
+    var SIN_ENVIAR = ['BORRADOR', 'PENDIENTE_SINCRONIZACION'];
+    var partes = N.filas('PARTES_DIARIOS', function (p) { return p.FechaTrabajo === diaCumpl && p.Estado !== 'ANULADO'; });
+    var ops = (cat().OPERADORES || []).filter(function (o) { return !o.Estado || o.Estado === 'ACTIVO' || partes.some(function (p) { return p.OperadorID === o.OperadorID; }); });
+    var filas = ops.map(function (o) {
+      var mios = partes.filter(function (p) { return p.OperadorID === o.OperadorID; });
+      var env = mios.filter(function (p) { return SIN_ENVIAR.indexOf(p.Estado) < 0; });
+      var p = env[0] || mios[0] || null;
+      return { o: o, p: p, todos: env.length ? env : mios, e: env.length ? 'ENVIADO' : p ? 'BORRADOR' : 'SIN' };
+    });
+    var n = function (f) { return filas.filter(f).length; };
+    var env = n(function (f) { return f.e === 'ENVIADO'; });
+    var dia = n(function (f) { return f.e === 'ENVIADO' && f.todos.some(function (p) { return p.Turno === 'DIA'; }); });
+    var noche = n(function (f) { return f.e === 'ENVIADO' && f.todos.some(function (p) { return p.Turno === 'NOCHE'; }); });
+    var pct = filas.length ? Math.round(env * 100 / filas.length) : 0;
+    var chipC = function (f) {
+      return f.e === 'ENVIADO' ? '<span class="estado ok">' + ic('checkc') + 'Enviado</span>'
+        : f.e === 'BORRADOR' ? '<span class="estado alerta">' + ic('clock') + 'Sin enviar</span>'
+        : '<span class="estado peligro">' + ic('alert') + 'Sin parte</span>';
+    };
+    var tarjeta = function (f) {
+      var det = f.todos.length ? f.todos.map(function (p) { return (equipo(p.EquipoID).CodigoInterno || p.EquipoID) + ' · ' + (p.Turno === 'DIA' ? 'Turno día' : 'Turno noche'); }).join(' / ') : 'No registró parte';
+      var inner = '<div class="entre"><div style="min-width:0"><h3>' + esc(f.o.Nombre || f.o.OperadorID) + '</h3><div class="mini">' + esc(det) + '</div></div>' + chipC(f) + '</div>';
+      return f.p ? '<a class="tarjeta tocable" href="#/parte/' + f.p.ParteID + '" style="display:block;color:inherit;text-decoration:none">' + inner + '</a>' : '<div class="tarjeta">' + inner + '</div>';
+    };
+    var orden = function (a, b) { return String(a.o.Nombre).localeCompare(String(b.o.Nombre)); };
+    var seccion = function (titulo, l) { return l.length ? '<div class="etiqueta-seccion">' + titulo + ' (' + l.length + ')</div><div class="lista">' + l.sort(orden).map(tarjeta).join('') + '</div>' : ''; };
+    var domingo = new Date(diaCumpl + 'T12:00:00Z').getUTCDay() === 0;
+    marco('Cumplimiento', '<div class="pasos">' + fechas.map(function (f) {
+      return '<button type="button" data-a="dia" data-v="' + f + '"' + (f === diaCumpl ? ' aria-current="step"' : '') + '>' + fF(f).substring(0, 5) + '</button>';
+    }).join('') + '</div>' +
+      '<div class="kpis"><div class="kpi"><div class="v acento num">' + pct + '%</div><div class="l">Cumplimiento</div></div>' +
+      '<div class="kpi"><div class="v num">' + filas.length + '</div><div class="l">Esperados (operadores)</div></div>' +
+      '<div class="kpi"><div class="v num">' + dia + '</div><div class="l">Turno día</div></div>' +
+      '<div class="kpi"><div class="v num">' + noche + '</div><div class="l">Turno noche</div></div>' +
+      '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'BORRADOR'; }) + '</div><div class="l">Guardados sin enviar</div></div>' +
+      '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'SIN'; }) + '</div><div class="l">Sin parte</div></div></div>' +
+      (domingo ? '<div class="aviso">' + ic('calendar') + '<div>Domingo: solo hay turno día.</div></div>' : '') +
+      seccion('Sin parte', filas.filter(function (f) { return f.e === 'SIN'; })) +
+      seccion('Guardado pero no enviado', filas.filter(function (f) { return f.e === 'BORRADOR'; })) +
+      seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
+      seccion('Enviados · turno noche', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'NOCHE'; })) +
+      (filas.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>No hay operadores registrados.</p></div>'));
+  }
+
+  function vCumplimientoEquipos() {
     var todos = N.filas('CUMPLIMIENTO');
     var fechas = Array.from(new Set(todos.map(function (c) { return c.FechaTrabajo; }))).sort().reverse();
     if (!diaCumpl || fechas.indexOf(diaCumpl) < 0) diaCumpl = fechas[0];
@@ -1592,6 +1704,7 @@
     flujo: function (b) { flujo(b.dataset.id, b.dataset.acc); },
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
+    iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
     cerrarFalla: function (b) { formCerrarFalla(b.dataset.k); },
     descartar: function (b) { S().rechazados.splice(Number(b.dataset.i), 1); render(); },
     salir: function () {
