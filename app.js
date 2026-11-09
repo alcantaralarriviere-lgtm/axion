@@ -323,7 +323,9 @@
     var a = busca('ASIGNACIONES', 'AsignacionID', p.AsignacionID);
     var eq = equipo(a.EquipoID);
     var completo = Object.assign({}, p, { EquipoID: a.EquipoID, ObraID: a.ObraID, SupervisorID: a.SupervisorID,
-      EmpresaID: eq.EmpresaPropietariaID, CodigoParte: R.codigoParte(eq.CodigoInterno, p.FechaTrabajo, p.Turno), Estado: p.Estado || 'BORRADOR' });
+      EmpresaID: eq.EmpresaPropietariaID, CodigoParte: R.codigoParte(eq.CodigoInterno, p.FechaTrabajo, p.Turno), Estado: p.Estado || 'BORRADOR',
+      CambioPorIA: p._porIA === true });  // solo si la IA cambió la fecha: el servidor no rechaza todo si esa fecha ya está ocupada
+    delete completo._porIA;
     delete tmp[p.ParteID];
     return N.guardar('PARTES_DIARIOS', completo);
   }
@@ -541,7 +543,11 @@
     var r = puedeEnviar(p);
     var hs = hallazgosIA(p);
     var h = '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3>' +
-      '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(t.Nombre || p.Turno) + '</div></div><a class="btn chico" href="#/parte/' + id + '/rapido/1">Cambiar</a></div>' +
+      '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(t.Nombre || p.Turno) + '</div></div><a class="btn chico" href="#/parte/' + id + '/rapido/1">Cambiar equipo</a></div>' +
+      // fecha y turno se corrigen aquí mismo, sin pasos
+      '<div class="tarjeta" style="display:grid;gap:10px"><div class="dos">' + ['DIA', 'NOCHE'].map(function (x) {
+        return '<button type="button" class="btn ' + (p.Turno === x ? 'primario' : '') + '" data-a="unoTurno" data-id="' + id + '" data-v="' + x + '" aria-pressed="' + (p.Turno === x) + '">' + ic(x === 'DIA' ? 'sun' : 'moon') + (x === 'DIA' ? 'Turno DÍA' : 'Turno NOCHE') + '</button>';
+      }).join('') + '</div><label class="campo"><span>Fecha del parte</span><input id="unoFecha" type="date" value="' + esc(p.FechaTrabajo) + '" min="' + R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2)) + '" max="' + hoy() + '"></label></div>' +
       // 1) la foto del parte de papel
       (foto ? '<div class="uno-foto ok">' + botonFoto(p, 'PARTE_FISICO_FIRMADO', 'Foto del parte de papel') + '</div>'
         : '<div class="uno-foto"><strong style="font-size:18px">Tómele foto a su parte de papel</strong><span class="sub">La IA llenará todo por usted.</span>' +
@@ -578,8 +584,29 @@
       '<p class="mini" style="text-align:center"><a href="#/parte/' + id + '/paso/4" data-a="detallado">Modo detallado</a> · ' + botonBorrarParte(p).replace('btn peligro ancho', 'btn chico fantasma') + '</p>';
     marco(p.CodigoParte || 'Parte', '<form id="fUno" novalidate style="display:grid;gap:14px">' + h + '</form>', { volver: '#/inicio' });
     var f = document.getElementById('fUno');
-    f.onchange = function (e) { if (e.target.dataset.a2 === 'lectura') guardarLecturasUno(id); };
+    f.onchange = function (e) {
+      if (e.target.id === 'unoFecha') { var err = cambiarFechaTurno(id, e.target.value, null); if (err) { toast(err); e.target.value = getParte(id).FechaTrabajo; } else { toast('Fecha cambiada'); render(); } return; }
+      if (e.target.dataset.a2 === 'lectura') guardarLecturasUno(id);
+    };
     hidratarFotos();
+  }
+  /** Cambia fecha y/o turno de un borrador (mismo equipo). Devuelve el error o null. */
+  function cambiarFechaTurno(id, fecha, tno) {
+    var p = Object.assign({}, getParte(id));
+    if (!editable(p)) return 'Este parte ya no se puede modificar.';
+    fecha = fecha || p.FechaTrabajo; tno = tno || p.Turno;
+    if (fecha === p.FechaTrabajo && tno === p.Turno) return null;
+    var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || fecha > hoy() || fecha < min) return 'Elija una fecha entre ' + fF(min) + ' y ' + fF(hoy()) + '.';
+    var a = (cat().ASIGNACIONES || []).filter(function (x) {
+      return x.OperadorID === p.OperadorID && x.EquipoID === p.EquipoID && x.Turno === tno && x.FechaInicio <= fecha && (!x.FechaFin || x.FechaFin >= fecha);
+    })[0];
+    if (!a) return 'No tiene autorizado ' + (equipo(p.EquipoID).CodigoInterno || 'este equipo') + ' en el turno ' + (tno === 'DIA' ? 'DÍA' : 'NOCHE') + '. Avise a su supervisor.';
+    var dup = N.filas('PARTES_DIARIOS', function (x) { return x.ParteID !== p.ParteID && x.Estado !== 'ANULADO' && x.FechaTrabajo === fecha && x.Turno === tno && (x.EquipoID === p.EquipoID || x.OperadorID === p.OperadorID); })[0];
+    if (dup) return 'Ya existe el parte ' + (dup.CodigoParte || '') + ' en esa fecha y turno. Ábralo desde Inicio o elimine uno de los dos.';
+    p.FechaTrabajo = fecha; p.Turno = tno; p.AsignacionID = a.AsignacionID; p.FrenteID = p.FrenteID || a.FrenteID;
+    guardarParte(p);
+    return null;
   }
   /** Guarda las lecturas escritas en la pantalla única (con las mismas validaciones). */
   function guardarLecturasUno(id) {
@@ -1532,7 +1559,7 @@
       var p = Object.assign({}, getParte(id));
       if (!r || !editable(p)) return null;
       var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [], auto: !!auto };
-      if (auto && corregirDesdePapel(p, r)) ap.fechaTurno = p.FechaTrabajo + ' ' + p.Turno;
+      if (auto && corregirDesdePapel(p, r)) { ap.fechaTurno = p.FechaTrabajo + ' ' + p.Turno; p._porIA = true; }
       ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
         var c = r[k.replace(/([a-z])([A-Z])/, '$1_$2').toLowerCase()];
         if (marca('lec_' + k) && R.valorIA(c) !== null) { ap.lecturas[k] = { antes: p[k], ahora: Number(R.valorIA(c)) }; p[k] = Number(R.valorIA(c)); }
@@ -1741,6 +1768,7 @@
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
+    unoTurno: function (b) { var err = cambiarFechaTurno(b.dataset.id, null, b.dataset.v); if (err) toast(err); else { toast('Turno cambiado'); render(); } },
     avisar: function (b) { avisadosCumpl(diaCumpl, b.dataset.k); setTimeout(render, 600); return true; },
     cerrarFalla: function (b) { formCerrarFalla(b.dataset.k); },
     descartar: function (b) { S().rechazados.splice(Number(b.dataset.i), 1); render(); },
