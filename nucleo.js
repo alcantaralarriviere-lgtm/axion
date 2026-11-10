@@ -302,6 +302,7 @@ var Nucleo = (function () {
           return;
         }
         if (it.op === 'accion') {
+          if (res.fila.eliminado) { quitarParte(it.fila.ParteID); return; }  // ya no existía en el servidor
           aplicarServidor('REVISIONES', res.fila.revision);
           aplicarServidor('PARTES_DIARIOS', res.fila.parte);
           if (res.fila.revision.ResultadoServidor === 'RECHAZADA')
@@ -328,7 +329,10 @@ var Nucleo = (function () {
       if (!S.outbox.length) return Promise.resolve();
       return enviarLote().then(paso);
     };
-    return paso().then(function () { return descargar(false); }).then(function () {
+    // cada 6 h una descarga completa: quita del celular los partes que ya no existen en el servidor
+    var completa = !S.ultimaCompleta || Date.now() - S.ultimaCompleta > 6 * 3600000;
+    return paso().then(function () { return descargar(completa); }).then(function () {
+      if (completa) S.ultimaCompleta = Date.now();
       S.ultimaSync = Date.now();
       S.errorSync = '';
       leerPendientesIA();
