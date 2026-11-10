@@ -1365,7 +1365,11 @@
     var f = filtros.filter(function (x) { return x[0] === filtroRevisar; })[0] || filtros[0];
     var buscando = !!String(busq.revisar || '').trim();
     var pasa = function (p) { return coincide('revisar', textoParte(p)); };
-    var l = N.filas('PARTES_DIARIOS', function (p) { return f[2](p) && pasa(p); }).sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); });
+    // orden alfabético por equipo (CAM-001, CAM-002…, CV-001…, EXC-001…); en el mismo equipo, el más reciente primero
+    var l = N.filas('PARTES_DIARIOS', function (p) { return f[2](p) && pasa(p); }).sort(function (a, b) {
+      return String(equipo(a.EquipoID).CodigoInterno || a.EquipoID).localeCompare(String(equipo(b.EquipoID).CodigoInterno || b.EquipoID), 'es', { numeric: true }) ||
+        (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno);
+    });
     var grupos = {};
     l.forEach(function (p) { (grupos[p.ObraID] = grupos[p.ObraID] || []).push(p); });
     marco(rol() === 'ADMIN' ? 'Revisión (administrador)' : 'Revisar partes',
