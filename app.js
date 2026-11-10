@@ -741,6 +741,16 @@
     return N.hijos('LECTURAS_IA', parteID).filter(function (l) { return l.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA'); })
       .sort(function (a, b) { return String(a.FechaHoraServidor).localeCompare(String(b.FechaHoraServidor)); }).pop() || null;
   }
+  /** Si el papel dice otra fecha o turno que el parte digital, devuelve "dd/mm/aaaa TURNO" del papel; si no, ''. */
+  function fechaPapelDistinta(p) {
+    if (!p || p.Estado === 'APROBADO' || p.Estado === 'ANULADO') return '';
+    var l = ultimaLecturaParte(p.ParteID), r = l ? R.resultadoIA(l) : null;
+    if (!r) return '';
+    var f = R.valorIA(r.fecha), t = String(R.valorIA(r.turno) || '').toUpperCase();
+    f = /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : p.FechaTrabajo;
+    t = t === 'DIA' || t === 'NOCHE' ? t : p.Turno;
+    return f !== p.FechaTrabajo || t !== p.Turno ? fF(f) + ' ' + t : '';
+  }
   function hallazgosIA(p) {
     return R.contrastarIA(p, equipo(p.EquipoID), N.hijos('LECTURAS_IA', p.ParteID), N.hijos('ABASTECIMIENTOS', p.ParteID), cfg(), nombreOp(p.OperadorID))
       .filter(function (h) { return h.estado !== 'RECONOCIDO'; });
@@ -1250,6 +1260,9 @@
     var botones = '';
     if (editable(p)) botones += '<a class="btn primario ancho" href="' + rutaParte(id, p.Estado === 'OBSERVADO' ? 2 : 3) + '">' + ic('edit') + (p.Estado === 'OBSERVADO' ? 'Corregir parte' : 'Continuar y enviar') + '</a>';
     botones += botonBorrarParte(p);
+    if (rol() === 'ADMIN' && fechaPapelDistinta(p)) {
+      botones += '<button class="btn ancho primario" data-a="flujo" data-acc="FECHA_PAPEL" data-id="' + id + '">' + ic('calendar') + 'Usar la fecha y turno del papel (' + fechaPapelDistinta(p) + ')</button>';
+    }
     if (rol() === 'ADMIN' && p.Estado === 'BORRADOR') {
       var pe = puedeEnviar(p);
       botones += pe.ok ? '<button class="btn ancho primario" data-a="flujo" data-acc="ENVIAR" data-id="' + id + '">' + ic('send') + 'Enviar por el operador</button>'
@@ -1324,7 +1337,7 @@
 
   function flujo(id, acc) {
     var p = getParte(id);
-    var nombres = { ENVIAR: 'Enviar por el operador', APROBAR: 'Aprobar parte', OBSERVAR: 'Observar parte', EXCEPCION: 'Aceptar excepción de lectura', ANULAR: 'Anular parte', REABRIR: 'Reabrir parte aprobado' };
+    var nombres = { FECHA_PAPEL: 'Usar la fecha del parte de papel', ENVIAR: 'Enviar por el operador', APROBAR: 'Aprobar parte', OBSERVAR: 'Observar parte', EXCEPCION: 'Aceptar excepción de lectura', ANULAR: 'Anular parte', REABRIR: 'Reabrir parte aprobado' };
     if (R.REQUIERE_COMENTARIO.indexOf(acc) >= 0) {
       hoja(nombres[acc], '<p class="sub">' + esc(p.CodigoParte) + '</p>' + campo(acc === 'OBSERVAR' ? 'Qué debe corregir el operador' : 'Motivo', '<textarea name="c" required></textarea>', true),
         function (v) {
@@ -1333,9 +1346,10 @@
           toast(nombres[acc] + ': enviado');
         }, acc === 'ANULAR' ? 'Anular' : 'Confirmar');
     } else {
-      confirmar(nombres[acc], acc === 'ENVIAR' ? 'Revise que la fecha (' + fF(p.FechaTrabajo) + '), el turno (' + p.Turno + ') y el equipo estén bien: después el operador ya no podrá cambiarlos. Quedará registrado que usted lo envió.'
+      confirmar(nombres[acc], acc === 'FECHA_PAPEL' ? 'El parte digital (' + fF(p.FechaTrabajo) + ' ' + p.Turno + ') pasará a ' + fechaPapelDistinta(p) + ', como dice el parte de papel. Si ya hay otro parte en esa fecha y turno, se le avisará y no se cambiará.'
+        : acc === 'ENVIAR' ? 'Revise que la fecha (' + fF(p.FechaTrabajo) + '), el turno (' + p.Turno + ') y el equipo estén bien: después el operador ya no podrá cambiarlos. Quedará registrado que usted lo envió.'
         : '¿Confirma? Quedará registrado con su nombre y la hora del servidor.', acc === 'APROBAR' ? 'Aprobar' : acc === 'ENVIAR' ? 'Enviar' : 'Confirmar').then(function (si) {
-        if (si) { N.accion(p, acc, ''); toast('Enviado'); render(); }
+        if (si) { N.accion(p, acc, ''); toast(acc === 'FECHA_PAPEL' ? 'Cambiando la fecha…' : 'Enviado'); render(); }
       });
     }
   }
@@ -1367,6 +1381,7 @@
           var dudas = hallazgosIA(p).filter(function (h) { return h.estado === 'INCONSISTENTE'; });
           return '<div style="display:grid;gap:6px">' + tarjetaParte(p) +
             (dudas.length ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>Revíselo antes de enviar:</strong><ul>' + dudas.map(function (h) { return '<li>' + esc(h.mensaje) + '</li>'; }).join('') + '</ul></div></div>' : '') +
+            (fechaPapelDistinta(p) ? '<button class="btn chico" data-a="flujo" data-acc="FECHA_PAPEL" data-id="' + p.ParteID + '">' + ic('calendar') + 'Usar fecha del papel (' + fechaPapelDistinta(p) + ')</button>' : '') +
             '<button class="btn chico ' + (dudas.length ? '' : 'primario') + '" data-a="flujo" data-acc="ENVIAR" data-id="' + p.ParteID + '">' + ic('send') + 'Enviar por el operador</button></div>';
         }).join('') + '</div>';
       }).join('') : '<div class="vacio">' + ic(buscando ? 'alert' : 'checkc') + '<p>' + (buscando ? 'No se encontró nada con esa búsqueda.' : 'Nada pendiente aquí.') + '</p></div>'));
