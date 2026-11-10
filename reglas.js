@@ -155,6 +155,26 @@ var Reglas = (function () {
     if (!campo || campo.valor === null || campo.valor === undefined || campo.valor === '') return null;
     return CONF_OK.indexOf(campo.confianza) >= 0 ? campo.valor : null;
   }
+  /**
+   * Fecha del parte de papel: manda lo ESCRITO (texto literal, p. ej. "05.11.26", "05/11/26", "05 Nov. 26").
+   * La interpretación de la IA (valor) solo se usa si el texto no se puede leer como fecha.
+   */
+  var MESES = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
+  function fechaIA(campo) {
+    var v = valorIA(campo);
+    if (!campo || v === null) return v;
+    var tx = String(campo.texto || '').toLowerCase();
+    var anioV = /^\d{4}/.test(String(v)) ? Number(String(v).substring(0, 4)) : null;
+    var d = null, m = null, a = null, x;
+    if ((x = tx.match(/(\d{1,2})\s*[.\/\-\s]\s*(\d{1,2})\s*(?:[.\/\-\s]\s*(\d{2,4}))?/))) { d = +x[1]; m = +x[2]; a = x[3] ? +x[3] : null; }
+    else if ((x = tx.match(/(\d{1,2})\s*(?:de\s*)?([a-z]{3})[a-z]*\.?\s*(?:de\s*)?(\d{2,4})?/)) && MESES[x[2]]) { d = +x[1]; m = MESES[x[2]]; a = x[3] ? +x[3] : null; }
+    if (d === null) return v;
+    if (a !== null && a < 100) a += 2000;
+    if (a === null) a = anioV;
+    if (!a || m < 1 || m > 12 || d < 1 || d > 31) return v;
+    var f = a + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+    return isNaN(Date.parse(f + 'T12:00:00Z')) ? v : f;
+  }
   function resultadoIA(l) {
     if (!l || !l.Resultado) return null;
     if (typeof l.Resultado === 'object') return l.Resultado;
@@ -209,7 +229,7 @@ var Reglas = (function () {
       if (codV && normCodigo(codV) !== normCodigo(equipo.CodigoInterno) && normCodigo(codV) !== normCodigo(equipo.PlacaSerie))
         add('Equipo', 'INCONSISTENTE', 'El parte de papel indica el equipo "' + codV + '" pero el parte es de ' + equipo.CodigoInterno + '.');
       else if (!codV) add('Equipo', estadoDe(cod), 'No se pudo confirmar el código del equipo en el parte de papel.');
-      var fe = valorIA(papel.fecha);
+      var fe = fechaIA(papel.fecha);
       if (fe && fe !== p.FechaTrabajo) add('Fecha', 'INCONSISTENTE', 'El parte de papel tiene fecha ' + fe + ' y el parte digital ' + p.FechaTrabajo + '.');
       else if (!fe) add('Fecha', estadoDe(papel.fecha), 'No se pudo confirmar la fecha en el parte de papel.');
       var tu = valorIA(papel.turno);
@@ -333,7 +353,7 @@ var Reglas = (function () {
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
-    valorIA: valorIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
+    valorIA: valorIA, fechaIA: fechaIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
     estadoCumplimiento: estadoCumplimiento, accionesPermitidas: accionesPermitidas,
     ESTADO_DESTINO: ESTADO_DESTINO, REQUIERE_COMENTARIO: REQUIERE_COMENTARIO };
 })();

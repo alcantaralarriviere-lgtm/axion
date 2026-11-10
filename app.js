@@ -746,7 +746,7 @@
     if (!p || p.Estado === 'APROBADO' || p.Estado === 'ANULADO') return '';
     var l = ultimaLecturaParte(p.ParteID), r = l ? R.resultadoIA(l) : null;
     if (!r) return '';
-    var f = R.valorIA(r.fecha), t = String(R.valorIA(r.turno) || '').toUpperCase();
+    var f = R.fechaIA(r.fecha), t = String(R.valorIA(r.turno) || '').toUpperCase();
     f = /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : p.FechaTrabajo;
     t = t === 'DIA' || t === 'NOCHE' ? t : p.Turno;
     return f !== p.FechaTrabajo || t !== p.Turno ? fF(f) + ' ' + t : '';
@@ -1105,7 +1105,7 @@
   /** Si el papel dice otra fecha o turno, manda el papel (solo en borradores y si no choca con otro parte). */
   function corregirDesdePapel(p, r) {
     if (p.Estado !== 'BORRADOR') return false;
-    var f = R.valorIA(r.fecha), tu = String(R.valorIA(r.turno) || '').toUpperCase();
+    var f = R.fechaIA(r.fecha), tu = String(R.valorIA(r.turno) || '').toUpperCase();
     var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
     var fecha = /^\d{4}-\d{2}-\d{2}$/.test(f || '') && f <= hoy() && f >= min ? f : p.FechaTrabajo;
     var tno = tu === 'DIA' || tu === 'NOCHE' ? tu : p.Turno;
@@ -1186,7 +1186,7 @@
       };
       h += listaHallazgos(hallazgosIA(p));
       h += '<div class="etiqueta-seccion">Datos generales</div><div class="tarjeta"><table class="ia-tabla">' +
-        fila('Fecha', r.fecha, fF(p.FechaTrabajo)) + fila('Turno', r.turno, p.Turno) + fila('Equipo', r.codigo_equipo, eq.CodigoInterno) + fila('Operador', r.operador, nombreOp(p.OperadorID)) + '</table></div>';
+        fila('Fecha', r.fecha ? Object.assign({}, r.fecha, { valor: R.fechaIA(r.fecha) }) : r.fecha, fF(p.FechaTrabajo)) + fila('Turno', r.turno, p.Turno) + fila('Equipo', r.codigo_equipo, eq.CodigoInterno) + fila('Operador', r.operador, nombreOp(p.OperadorID)) + '</table></div>';
       var lect = [];
       if (eq.TieneHorometro) lect.push(['HorometroInicial', 'horometro_inicial', 'Horómetro inicial'], ['HorometroFinal', 'horometro_final', 'Horómetro final']);
       if (eq.TieneOdometro) lect.push(['OdometroInicial', 'odometro_inicial', 'Odómetro inicial'], ['OdometroFinal', 'odometro_final', 'Odómetro final']);
