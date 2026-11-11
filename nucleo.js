@@ -364,7 +364,15 @@ var Nucleo = (function () {
         });
       }
       (d.eliminados || []).forEach(function (id) { if (!pendiente[id] && !pendiente['P:' + id]) quitarParte(id); });
-      d.PARTES_DIARIOS.forEach(function (p) { if (!pendiente[p.ParteID] && !pendiente['P:' + p.ParteID]) aplicarServidor('PARTES_DIARIOS', p); });
+      d.PARTES_DIARIOS.forEach(function (p) {
+        var pend = pendiente[p.ParteID] || pendiente['P:' + p.ParteID];
+        // anulado o aprobado en el servidor: manda el servidor y se descarta lo que este celular tenía pendiente de ese parte
+        if (pend && (p.Estado === 'ANULADO' || p.Estado === 'APROBADO')) {
+          S.outbox = S.outbox.filter(function (it) { return it.ref !== p.ParteID && it.parte !== p.ParteID && !(it.fila && it.fila.ParteID === p.ParteID); });
+          pend = false;
+        }
+        if (!pend) aplicarServidor('PARTES_DIARIOS', p);
+      });
       HIJAS.forEach(function (t) { d[t].forEach(function (f) { if (!pendiente[f[TABLAS[t]]]) aplicarServidor(t, f); }); });
       ['FALLAS', 'CUMPLIMIENTO'].forEach(function (t) {
         var o = S.t[t];

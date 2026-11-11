@@ -308,7 +308,7 @@
       ultimos());
   }
   function ultimos() {
-    var l = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === perfil().OperadorID; })
+    var l = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === perfil().OperadorID && p.Estado !== 'ANULADO'; })
       .sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); }).slice(0, 3);
     if (!l.length) return '';
     return '<div class="etiqueta-seccion">Últimos partes</div><div class="lista">' + l.map(tarjetaParte).join('') + '</div>';
@@ -323,11 +323,12 @@
   }
 
   function vMisPartes() {
-    var l = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === perfil().OperadorID; })
+    // los anulados ya no se muestran al operador (el administrador los anuló: no cuentan)
+    var l = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === perfil().OperadorID && p.Estado !== 'ANULADO'; })
       .sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); });
     var grupos = [['Para completar o corregir', function (p) { return editable(p); }],
       ['En revisión', function (p) { return !editable(p) && ['PENDIENTE_REVISION', 'CORREGIDO', 'BORRADOR', 'OBSERVADO'].indexOf(p.Estado) >= 0; }],
-      ['Aprobados y anulados', function (p) { return p.Estado === 'APROBADO' || p.Estado === 'ANULADO'; }]];
+      ['Aprobados', function (p) { return p.Estado === 'APROBADO'; }]];
     marco('Mis partes', l.length ? grupos.map(function (g) {
       var x = l.filter(g[1]);
       return x.length ? '<div class="etiqueta-seccion">' + g[0] + ' (' + x.length + ')</div><div class="lista">' + x.map(tarjetaParte).join('') + '</div>' : '';
