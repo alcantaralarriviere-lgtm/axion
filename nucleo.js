@@ -325,16 +325,23 @@ var Nucleo = (function () {
     if (!navigator.onLine) { avisar(); return Promise.resolve(); }
     sincronizando = true;
     avisar();
+    var vueltas = 0;
     var paso = function () {
-      if (!S.outbox.length) return Promise.resolve();
-      return enviarLote().then(paso);
+      if (!S.outbox.length || vueltas++ > 40) return Promise.resolve();
+      var antes = S.outbox.length;
+      // si una vuelta no avanzó (p. ej. el servidor está ocupado), se deja para el próximo intento
+      return enviarLote().then(function () { return S.outbox.length < antes ? paso() : null; });
     };
     // cada 6 h una descarga completa: quita del celular los partes que ya no existen en el servidor
     var completa = !S.ultimaCompleta || Date.now() - S.ultimaCompleta > 6 * 3600000;
-    return paso().then(function () { return descargar(completa); }).then(function () {
+    var errEnvio = null;
+    // aunque una foto o un cambio no logre subir (poca señal), igual se descargan los cambios del servidor
+    // (anulaciones, aprobaciones, observaciones); lo que falta se reintenta después
+    return paso().catch(function (e) { errEnvio = e; if (e.codigo === 'SESION') throw e; }).then(function () { return descargar(completa); }).then(function () {
       if (completa) S.ultimaCompleta = Date.now();
       S.ultimaSync = Date.now();
-      S.errorSync = '';
+      S.errorSync = errEnvio ? 'Hay cambios por enviar: ' + errEnvio.message : '';
+      if (errEnvio) programar(30000);
       leerPendientesIA();
     }, function (e) {
       S.errorSync = e.message;
