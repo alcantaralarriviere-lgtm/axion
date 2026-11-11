@@ -18,6 +18,8 @@
     camera: '<path d="M4 8h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    ojo: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    ojono: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
     wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>',
     truck: '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
     fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h4"/>',
@@ -213,6 +215,27 @@
     return s;
   }
 
+  /**
+   * ¿Ya hay un parte en esa fecha y turno para este equipo (de cualquier operador) o para este operador?
+   * Usa lo que el servidor informa (OCUPADOS) y los partes del celular. Devuelve {CodigoParte, Operador, ParteID, propio} o null.
+   */
+  function ocupado(equipoID, fecha, tno, excluirID) {
+    var yo = perfil().OperadorID;
+    var locales = N.filas('PARTES_DIARIOS', function (x) { return x.Estado !== 'ANULADO' && !x._error; }).map(function (x) {
+      return { ParteID: x.ParteID, EquipoID: x.EquipoID, FechaTrabajo: x.FechaTrabajo, Turno: x.Turno, OperadorID: x.OperadorID, CodigoParte: x.CodigoParte, Estado: x.Estado };
+    });
+    var hit = locales.concat(cat().OCUPADOS || []).filter(function (x) {
+      return x.ParteID !== excluirID && x.FechaTrabajo === fecha && x.Turno === tno && x.Estado !== 'ANULADO' &&
+        (x.OperadorID === yo || (equipoID && x.EquipoID === equipoID)) && (N.fila('PARTES_DIARIOS', x.ParteID) || {}).Estado !== 'ANULADO';
+    })[0];
+    if (!hit) return null;
+    return { ParteID: hit.ParteID, CodigoParte: hit.CodigoParte, Operador: hit.OperadorID === yo ? 'usted' : (hit.Operador || nombreOp(hit.OperadorID)), propio: hit.OperadorID === yo, EquipoID: hit.EquipoID };
+  }
+  function textoOcupado(o, fecha, tno) {
+    return 'Ya existe el parte ' + (o.CodigoParte || '') + ' del ' + fF(fecha) + ' turno ' + (tno === 'DIA' ? 'DÍA' : 'NOCHE') + (o.propio ? ' (suyo).' : ', de ' + o.Operador + '.') +
+      ' Revise la fecha y el turno; si el otro está mal, avise al administrador para que lo anule.';
+  }
+
   /** Inicio del operador en 3 toques: 1) turno, 2) fecha, 3) equipo → foto del parte. */
   function vInicio() {
     var yo = perfil().OperadorID;
@@ -229,9 +252,13 @@
     }).join('') + '</div>' +
       paso(2, 'Fecha del parte') + '<label class="campo"><input id="iniFecha" type="date" value="' + s.fecha + '" min="' + min + '" max="' + max + '" style="font-size:18px;min-height:52px"></label>';
     var hecho = N.filas('PARTES_DIARIOS', function (x) { return x.OperadorID === yo && x.FechaTrabajo === s.fecha && x.Turno === s.turno && x.Estado !== 'ANULADO'; })[0];
+    var mioSrv = hecho ? null : ocupado(null, s.fecha, s.turno);  // su parte está en el servidor pero no en este celular
     if (hecho) {
       h += paso(3, 'Su parte de ese turno') + tarjetaParte(hecho) +
+        (hecho._error ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>Este borrador fue rechazado:</strong> ' + esc(hecho._error) + '<div class="sub">Cambie la fecha o el turno, o elimínelo.</div></div></div>' : '') +
         (editable(hecho) ? '<a class="btn primario ancho enorme" href="' + rutaParte(hecho.ParteID, 2) + '">' + ic('camera') + 'Continuar parte</a>' : '') + botonBorrarParte(hecho);
+    } else if (mioSrv && mioSrv.propio) {
+      h += paso(3, 'Su parte de ese turno') + '<div class="aviso">' + ic('checkc') + '<div><strong>Ya registró el parte ' + esc(mioSrv.CodigoParte) + '.</strong><div class="sub">Si quería otro día u otro turno, cámbielos arriba.</div></div></div>';
     } else {
       var usados = {};  // equipo que más recientemente usó: primero en la lista
       N.filas('PARTES_DIARIOS', function (x) { return x.OperadorID === yo && x.Estado !== 'ANULADO'; }).forEach(function (x) {
@@ -241,6 +268,9 @@
         .sort(function (a, b) { return String(usados[b.EquipoID] || '').localeCompare(String(usados[a.EquipoID] || '')) || String(equipo(a.EquipoID).CodigoInterno).localeCompare(String(equipo(b.EquipoID).CodigoInterno)); });
       h += paso(3, '¿Qué equipo operó?') + (delTurno.length ? '<div class="lista">' + delTurno.map(function (a, i) {
         var eq = equipo(a.EquipoID);
+        var oc = ocupado(a.EquipoID, s.fecha, s.turno);
+        if (oc) return '<div class="tarjeta fila" style="padding:12px 14px;opacity:.6"><div class="icono-caja">' + ic('checkc') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + '</h3>' +
+          '<div class="mini">Ya tiene parte en este turno: ' + esc(oc.Operador) + '</div></div></div>';
         return '<a class="tarjeta tocable fila' + (i === 0 && usados[a.EquipoID] ? ' destacada' : '') + '" style="text-decoration:none;color:inherit;padding:12px 14px" href="#/parte/nuevo?asig=' + a.AsignacionID + '&fecha=' + s.fecha + '">' +
           '<div class="icono-caja acento">' + ic(['VOLQUETE', 'CISTERNA', 'CISTERNA DE COMBUSTIBLE', 'CAMION BARANDA', 'CAMION GRUA'].indexOf(eq.Familia) >= 0 ? 'truck' : 'gauge') + '</div>' +
           '<div class="crece"><h3>' + esc(eq.CodigoInterno) + '</h3><div class="mini">' + esc(eq.Familia) + ' · ' + esc(eq.Marca + ' ' + eq.Modelo) +
@@ -341,6 +371,10 @@
   function nuevoParte(q) {
     var pr = R.proponer(Date.now());
     var a = q.asig ? busca('ASIGNACIONES', 'AsignacionID', q.asig) : null;
+    if (a && a.AsignacionID) {  // no crear un parte que el servidor rechazaría por repetido
+      var oc = ocupado(a.EquipoID, q.fecha || pr.fecha, a.Turno);
+      if (oc) { toast(textoOcupado(oc, q.fecha || pr.fecha, a.Turno)); location.replace('#/inicio'); return; }
+    }
     var id = N.nuevoID('PD');
     tmp[id] = { ParteID: id, OperadorID: perfil().OperadorID, FechaTrabajo: q.fecha || pr.fecha, Turno: a ? a.Turno : pr.turno,
       AsignacionID: a ? a.AsignacionID : '', FrenteID: a ? a.FrenteID : '', FechaCreacion: R.isoLima(Date.now()), Estado: '' };
@@ -550,7 +584,7 @@
   // El operador toma la foto del parte de papel, la IA llena todo sola y él solo corrige lo marcado en rojo.
   function vUno(id) {
     var p = getParte(id);
-    if (!p) { location.replace('#/inicio'); return; }
+    if (!p) { toast('Este borrador ya no está: el servidor lo rechazó o se eliminó. Elija de nuevo turno, fecha y equipo.'); location.replace('#/inicio'); return; }
     if (p.Estado && !editable(p)) { location.replace('#/parte/' + id); return; }
     if (!p.AsignacionID) { location.replace('#/parte/' + id + '/rapido/1'); return; }
     modo('uno');
@@ -573,7 +607,10 @@
     var l = R.lecturas(p, eq, cfg(), false);
     var r = puedeEnviar(p);
     var hs = hallazgosIA(p);
-    var h = '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3>' +
+    // si el servidor rechazó el borrador (p. ej. ya había un parte ese día y turno), decirlo arriba y con claridad
+    var h = (p._error ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>El servidor no aceptó este parte:</strong> ' + esc(p._error) +
+      '<div class="sub">Cambie abajo el turno o la fecha, o elimine este borrador. La foto se subirá cuando el parte sea aceptado.</div></div></div>' : '') +
+      '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3>' +
       '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(t.Nombre || p.Turno) + '</div></div><a class="btn chico" href="#/parte/' + id + '/rapido/1">Cambiar equipo</a></div>' +
       // fecha y turno se corrigen aquí mismo, sin pasos
       '<div class="tarjeta" style="display:grid;gap:10px"><div class="dos">' + ['DIA', 'NOCHE'].map(function (x) {
@@ -633,10 +670,12 @@
       return x.OperadorID === p.OperadorID && x.EquipoID === p.EquipoID && x.Turno === tno && x.FechaInicio <= fecha && (!x.FechaFin || x.FechaFin >= fecha);
     })[0];
     if (!a) return 'No tiene autorizado ' + (equipo(p.EquipoID).CodigoInterno || 'este equipo') + ' en el turno ' + (tno === 'DIA' ? 'DÍA' : 'NOCHE') + '. Avise a su supervisor.';
-    var dup = N.filas('PARTES_DIARIOS', function (x) { return x.ParteID !== p.ParteID && x.Estado !== 'ANULADO' && x.FechaTrabajo === fecha && x.Turno === tno && (x.EquipoID === p.EquipoID || x.OperadorID === p.OperadorID); })[0];
-    if (dup) return 'Ya existe el parte ' + (dup.CodigoParte || '') + ' en esa fecha y turno. Ábralo desde Inicio o elimine uno de los dos.';
+    var oc = ocupado(p.EquipoID, fecha, tno, p.ParteID);
+    if (oc) return textoOcupado(oc, fecha, tno);
     p.FechaTrabajo = fecha; p.Turno = tno; p.AsignacionID = a.AsignacionID; p.FrenteID = p.FrenteID || a.FrenteID;
+    var reintentar = !!p._error;
     guardarParte(p);
+    if (reintentar) N.reencolarFotos(p.ParteID);  // el parte rechazado vuelve a enviarse: sus fotos también
     return null;
   }
   /** Guarda las lecturas escritas en la pantalla única (con las mismas validaciones). */
@@ -1845,6 +1884,14 @@
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
+    ojo: function (b) {
+      var inp = b.parentNode.querySelector('input');
+      var ver = inp.type === 'password';
+      inp.type = ver ? 'text' : 'password';
+      b.innerHTML = ic(ver ? 'ojono' : 'ojo');
+      b.setAttribute('aria-label', ver ? 'Ocultar contraseña' : 'Mostrar contraseña');
+      inp.focus();
+    },
     unoTurno: function (b) { var err = cambiarFechaTurno(b.dataset.id, null, b.dataset.v); if (err) toast(err); else { toast('Turno cambiado'); render(); } },
     avisar: function (b) { avisadosCumpl(diaCumpl, b.dataset.k); setTimeout(render, 600); return true; },
     cerrarFalla: function (b) { formCerrarFalla(b.dataset.k); },
@@ -1923,10 +1970,25 @@
     if (m && p) vivo(p, Number(m[1]));
   }
 
+  /** Botón de "ojito" en cada contraseña para ver lo que se escribe. */
+  function ojitos() {
+    document.querySelectorAll('input[type="password"]:not([data-ojo])').forEach(function (inp) {
+      inp.setAttribute('data-ojo', '1');
+      var caja = document.createElement('span');
+      caja.className = 'clave-caja';
+      inp.parentNode.insertBefore(caja, inp);
+      caja.appendChild(inp);
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'ojo'; b.setAttribute('data-a', 'ojo'); b.setAttribute('aria-label', 'Mostrar contraseña');
+      b.innerHTML = ic('ojo');
+      caja.appendChild(b);
+    });
+  }
   function render() {
     if (dlg.open) return;
     capturarEscrito();
     renderRuta();
+    ojitos();
     restaurarEscrito();
   }
 

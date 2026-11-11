@@ -282,6 +282,11 @@ var Nucleo = (function () {
       }, function (e) {
         f.enviando = false;
         if (REINTENTABLE.indexOf(e.codigo) >= 0) throw e;
+        // el parte todavía está en camino (su envío espera en la cola): la foto espera, no se descarta
+        if (e.codigo === 'NO_EXISTE' && S.outbox.some(function (x) { return x.op === 'guardar' && x.tabla === 'PARTES_DIARIOS' && x.ref === f.parte; })) {
+          S.outbox = S.outbox.filter(function (x) { return x !== f; }).concat([f]);
+          throw e;
+        }
         S.outbox = S.outbox.filter(function (x) { return x !== f; });
         rechazar(f, e);
       });
@@ -393,13 +398,30 @@ var Nucleo = (function () {
 
   window.addEventListener('online', function () { programar(500); });
   window.addEventListener('offline', avisar);
-  setInterval(function () { if (S && S.token && navigator.onLine) sincronizar(); }, 90000);
+  // cada 2 min, y solo con la app a la vista (menos carga para el servidor cuando hay muchos operadores)
+  setInterval(function () { if (S && S.token && navigator.onLine && !document.hidden) sincronizar(); }, 120000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && S && S.token && navigator.onLine) programar(800); });
+
+  /** Vuelve a poner en cola las fotos de un parte que se rechazaron porque el parte aún no existía en el servidor. */
+  function reencolarFotos(parteID) {
+    var n = 0;
+    Object.keys(S.t.EVIDENCIAS).forEach(function (k) {
+      var e = S.t.EVIDENCIAS[k];
+      if (e.ParteID !== parteID || e._srv || !e._error) return;
+      if (S.outbox.some(function (it) { return it.op === 'foto' && it.ref === k; })) return;
+      e._error = ''; e._pend = true;
+      encolar({ op: 'foto', ref: k, parte: parteID, fila: limpiar(e) });
+      n++;
+    });
+    if (n) { avisar(); programar(1500); }
+    return n;
+  }
 
   return {
     iniciar: iniciar, alCambiar: alCambiar, estado: function () { return S; }, ingresar: ingresar, salir: salir, cambiarClave: cambiarClave,
     filas: filas, fila: fila, hijos: hijos, pendientesDe: pendientesDe, estadoVisible: estadoVisible,
     nuevoID: nuevoID, guardar: guardar, eliminar: eliminar, eliminarParte: eliminarParte, accion: accion, foto: foto, leerFoto: leerFoto,
-    guardarFoto: guardarFoto, sincronizar: sincronizar, api: api, ocupado: function () { return sincronizando; },
+    guardarFoto: guardarFoto, sincronizar: sincronizar, reencolarFotos: reencolarFotos, api: api, ocupado: function () { return sincronizando; },
     iaLista: iaLista, leerIA: leerIA, lecturaDe: lecturaDe, estadoIA: function (evId) { return ia[evId] || null; }, IA_TIPOS: IA_TIPOS
   };
 })();
