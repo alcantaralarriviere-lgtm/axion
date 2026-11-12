@@ -325,7 +325,8 @@ var Nucleo = (function () {
     });
   }
 
-  function sincronizar() {
+  function sincronizar(forzarCompleta) {
+    if (forzarCompleta === true && S) S.ultimaCompleta = 0;  // tocar "sincronizar" baja todo de nuevo desde el servidor
     if (sincronizando || !S || !S.token || (S.perfil && S.perfil.DebeCambiarClave)) return Promise.resolve();
     if (!navigator.onLine) { avisar(); return Promise.resolve(); }
     sincronizando = true;
