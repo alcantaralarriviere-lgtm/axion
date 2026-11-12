@@ -97,7 +97,7 @@
         ? [['#/inicio', 'home', 'Inicio'], ['#/parte/nuevo', 'plus', 'Nuevo parte'], ['#/partes', 'list', 'Mis partes', obsCount()], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]
         : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'wrench', 'Mantenimiento'], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]];
       var actual = location.hash.split('/').slice(0, 2).join('/');
-      if (['#/fallas', '#/plan', '#/falla'].indexOf(actual) >= 0) actual = '#/mantto';
+      if (['#/fallas', '#/plan', '#/falla', '#/utilizacion'].indexOf(actual) >= 0) actual = '#/mantto';
       nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in">' + items.map(function (it) {
         var act = actual === it[0] || (it[0] === '#/parte/nuevo' && actual === '#/parte');
         return '<a href="' + it[0] + '"' + (act ? ' aria-current="page"' : '') + '>' + ic(it[1]) + '<span>' + it[2] + '</span>' +
@@ -1605,7 +1605,7 @@
   function equiposDesmovilizados() { return (cat().EQUIPOS || []).filter(function (e) { return equiposObra().indexOf(e) < 0; }); }
   function pestanasMantto(act) {
     if (rol() === 'OPERADOR') return '';
-    return '<div class="segmento" role="group" aria-label="Mantenimiento">' + [['mantto', 'Indicadores'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto']].map(function (x) {
+    return '<div class="segmento" role="group" aria-label="Mantenimiento">' + [['mantto', 'Indicadores'], ['utilizacion', 'Utilización'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto']].map(function (x) {
       return '<button type="button" data-a="ir" data-h="#/' + x[0] + '" aria-pressed="' + (x[0] === act) + '">' + x[1] + '</button>';
     }).join('') + '</div>';
   }
@@ -1653,9 +1653,11 @@
 
   /** Horas programadas de un día: 10 h por turno de lunes a sábado, 5 h el domingo. */
   function horasProgDia(fecha) { return new Date(fecha + 'T12:00:00Z').getUTCDay() === 0 ? 5 : 10; }
-  var periodoMantto = '30';
+  var periodoMantto = '30', rangoLibre = null, filtroUtil = 'TODOS';
   function rangoMantto() {
     var h = hoy(), d;
+    if (periodoMantto === 'hoy') return { desde: h, hasta: h, nombre: 'hoy' };
+    if (periodoMantto === 'rango' && rangoLibre) return { desde: rangoLibre.desde, hasta: rangoLibre.hasta, nombre: 'rango elegido' };
     if (periodoMantto === 'mes') return { desde: h.substring(0, 8) + '01', hasta: h, nombre: 'este mes' };
     if (periodoMantto === 'mesant') {
       var p = new Date(Date.UTC(+h.substring(0, 4), +h.substring(5, 7) - 2, 1));
@@ -1663,22 +1665,60 @@
       var fin = new Date(Date.UTC(+h.substring(0, 4), +h.substring(5, 7) - 1, 0)).toISOString().substring(0, 10);
       return { desde: d, hasta: fin, nombre: 'mes anterior' };
     }
-    var n = Number(periodoMantto);
+    var n = Number(periodoMantto) || 30;
     return { desde: R.sumarDias(h, -(n - 1)), hasta: h, nombre: 'últimos ' + n + ' días' };
   }
+  /** Filtro de periodo (lo comparten Indicadores y Utilización). */
+  function filtroPeriodo(rg) {
+    var min = R.sumarDias(hoy(), -89);
+    var abierto = periodoMantto === 'rango' || periodoMantto === 'libre';
+    return '<div class="tarjeta filtro-periodo"><div class="entre"><h3>' + ic('calendar') + ' Periodo</h3><span class="mini num">' + fF(rg.desde) + (rg.desde === rg.hasta ? '' : ' – ' + fF(rg.hasta)) + '</span></div>' +
+      '<div class="segmento" role="group" aria-label="Periodo">' + [['hoy', 'Hoy'], ['7', '7 días'], ['30', '30 días'], ['mes', 'Este mes'], ['mesant', 'Mes anterior'], ['libre', 'Elegir fechas']].map(function (x) {
+        var on = x[0] === periodoMantto || (x[0] === 'libre' && periodoMantto === 'rango');
+        return '<button type="button" data-a="periodoMantto" data-v="' + x[0] + '" aria-pressed="' + on + '">' + x[1] + '</button>';
+      }).join('') + '</div>' +
+      (abierto ? '<div class="rango-libre"><label>Desde<input id="rgDesde" type="date" min="' + min + '" max="' + hoy() + '" value="' + (rangoLibre ? rangoLibre.desde : R.sumarDias(hoy(), -6)) + '"></label>' +
+        '<label>Hasta<input id="rgHasta" type="date" min="' + min + '" max="' + hoy() + '" value="' + (rangoLibre ? rangoLibre.hasta : hoy()) + '"></label>' +
+        '<button type="button" class="btn chico primario" data-a="rangoAplicar">Aplicar</button></div>' : '') + '</div>';
+  }
   /** Indicadores por equipo (solo línea amarilla y blanca con horómetro). */
-  function indicadoresMantto(rg) {
+  /** Horas de horómetro y km de un parte (calculados si la hoja aún no los trae). */
+  function horasDeParte(p) {
+    var h = R.num(p.HorasTrabajadas);
+    if (h === null) { var a = R.num(p.HorometroInicial), b = R.num(p.HorometroFinal); h = a !== null && b !== null && b >= a ? b - a : 0; }
+    return Math.max(0, Math.min(h, 24));
+  }
+  function kmDeParte(p) {
+    var k = R.num(p.KmRecorridos);
+    if (k === null) { var a = R.num(p.OdometroInicial), b = R.num(p.OdometroFinal); k = a !== null && b !== null && b >= a ? b - a : 0; }
+    return Math.max(0, Math.min(k, 2000));
+  }
+  /** Indicadores por equipo. Por defecto solo línea amarilla y blanca con horómetro; todos = true incluye todos los equipos. */
+  function indicadoresMantto(rg, todos) {
     var dias = [];
     for (var d = rg.desde; d <= rg.hasta; d = R.sumarDias(d, 1)) dias.push(d);
     var ahoraMs = Date.now();
     var partes = N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO' && p.FechaTrabajo >= rg.desde && p.FechaTrabajo <= rg.hasta; });
     var fallas = N.filas('FALLAS');
+    var prodPorParte = {};
+    if (todos) N.filas('ACTIVIDADES').forEach(function (a) {
+      var t = (catAct()[a.ActividadCatID] || {}).TipoActividad;
+      if (t === 'PRODUCTIVA' || t === 'SERVICIO') prodPorParte[a.ParteID] = (prodPorParte[a.ParteID] || 0) + Number(a.DuracionHoras || 0);
+    });
     // un equipo solo tiene horas programadas los días que estuvo en obra (desde su ingreso hasta antes de su salida)
     var enObra = function (e, x) { return (!e.FechaIngresoObra || x >= e.FechaIngresoObra) && (!e.FechaSalidaObra || x < e.FechaSalidaObra) && !(e.Estado === 'BAJA' && !e.FechaSalidaObra); };
     return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
-      return e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA') && dias.some(function (x) { return enObra(e, x); });
+      return (todos || (e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
+      var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
+      var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {};
+      misPartes.forEach(function (p) {
+        var h = horasDeParte(p);
+        ht += h; km += kmDeParte(p); hprod += prodPorParte[p.ParteID] || 0;
+        conParte[p.FechaTrabajo] = 1; htDia[p.FechaTrabajo] = (htDia[p.FechaTrabajo] || 0) + h;
+      });
+      var diasObra = dias.filter(function (x) { return enObra(e, x); }).length;
       var noches = {};
       partes.forEach(function (p) { if (p.EquipoID === e.EquipoID && p.Turno === 'NOCHE') noches[p.FechaTrabajo] = 1; });
       var hpDia = {}, hp = 0;
@@ -1701,6 +1741,8 @@
       var totSis = Object.keys(porSistema).reduce(function (s, k) { return s + porSistema[k]; }, 0);
       if (totSis > 0) Object.keys(porSistema).forEach(function (k) { porSistema[k] = porSistema[k] * hi / totSis; });
       return { eq: e, linea: lineaDe(e), hp: hp, hi: hi, nFallas: nFallas, dm: hp ? (hp - hi) / hp : 1,
+        ht: ht, km: km, hprod: hprod, diasObra: diasObra, diasParte: Object.keys(conParte).filter(function (x) { return hpDia[x] > 0; }).length, htDia: htDia,
+        soloKm: !e.TieneHorometro,
         mtbf: nFallas ? (hp - hi) / nFallas : null, mttr: nFallas ? hi / nFallas : null, hpDia: hpDia, hiDia: hiDia, porSistema: porSistema };
     });
   }
@@ -1752,10 +1794,7 @@
       return { d: x, dm: hp ? (hp - hi) / hp : 1 };
     });
     var kpi = function (v, l, cls) { return '<div class="kpi"><div class="v num ' + (cls || '') + '">' + v + '</div><div class="l">' + l + '</div></div>'; };
-    var h = pestanasMantto('mantto') +
-      '<div class="segmento" role="group" aria-label="Periodo">' + [['7', '7 días'], ['30', '30 días'], ['mes', 'Este mes'], ['mesant', 'Mes anterior']].map(function (x) {
-        return '<button type="button" data-a="periodoMantto" data-v="' + x[0] + '" aria-pressed="' + (x[0] === periodoMantto) + '">' + x[1] + '</button>';
-      }).join('') + '</div>' +
+    var h = pestanasMantto('mantto') + filtroPeriodo(rg) +
       '<div class="etiqueta-seccion">Equipos en obra</div><div class="kpis">' +
       kpi(eqs.length, 'Equipos en obra', 'acento') +
       kpi(equiposDesmovilizados().length, 'Desmovilizados') +
@@ -1788,6 +1827,142 @@
       'Solo línea amarilla y blanca con horómetro; no se incluyen los equipos que solo tienen kilometraje. Horas inoperativas = fallas con "falla funcional = Sí" (sin pasar de las horas programadas del día). ' +
       'MTBF y MTTR usan las fallas correctivas y diferidas (no preventivos ni inspecciones).</p>';
     marco('Mantenimiento', h);
+  }
+
+  /** Clasificación de rendimiento de un equipo en el periodo. */
+  var CLASE_UTIL = {
+    ALTA: { t: 'Alto rendimiento', c: 'var(--ok)' },
+    NORMAL: { t: 'Aceptable', c: 'var(--acento)' },
+    BAJA: { t: 'Bajo uso', c: 'var(--peligro)' },
+    FALLAS: { t: 'Bajo por fallas', c: '#FFD60A' },
+    SINDATO: { t: 'Sin partes', c: 'var(--texto-3)' }
+  };
+  function claseUtil(i) {
+    if (!i.diasParte) return 'SINDATO';
+    var u = i.u;
+    if (u >= 0.85) return 'ALTA';
+    if (u >= 0.6) return 'NORMAL';
+    return !i.soloKm && i.dm < 0.8 ? 'FALLAS' : 'BAJA';
+  }
+
+  function vUtilizacion() {
+    var rg = rangoMantto();
+    var ind = indicadoresMantto(rg, true).filter(function (i) { return i.diasObra > 0; });
+    ind.forEach(function (i) {
+      i.disp = Math.max(0, i.hp - i.hi);
+      // horómetro: horas trabajadas / horas programadas · solo km: días con parte / días en obra
+      i.u = i.soloKm ? (i.diasObra ? i.diasParte / i.diasObra : 0) : (i.hp ? i.ht / i.hp : 0);
+      i.ue = i.disp ? Math.min(1, i.ht / i.disp) : 0;
+      i.ociosas = Math.max(0, i.hp - i.hi - i.ht);
+      i.clase = claseUtil(i);
+    });
+    // los equipos sin ningún parte en el periodo no entran al cálculo (no se sabe si están parados o si no reportan): se listan aparte
+    var hor = ind.filter(function (i) { return !i.soloKm && i.clase !== 'SINDATO'; });
+    var suma = function (arr, k) { return arr.reduce(function (s, i) { return s + (i[k] || 0); }, 0); };
+    var HP = suma(hor, 'hp'), HT = Math.min(suma(hor, 'ht'), HP || Infinity), HI = suma(hor, 'hi'), HO = Math.max(0, HP - HT - HI), HPROD = suma(hor, 'hprod');
+    var U = HP ? HT / HP : 0, UE = HP - HI > 0 ? HT / (HP - HI) : 0;
+    var cuenta = function (c) { return ind.filter(function (i) { return i.clase === c; }).length; };
+    var colorU = function (u) { return u >= 0.85 ? 'var(--ok)' : u >= 0.6 ? 'var(--acento)' : 'var(--peligro)'; };
+    var kpi = function (v, l, cls, sub) { return '<div class="kpi"><div class="v num ' + (cls || '') + '">' + v + '</div><div class="l">' + l + '</div>' + (sub ? '<div class="mini kpi-sub">' + sub + '</div>' : '') + '</div>'; };
+
+    // por línea y por familia
+    var agrupa = function (clave) {
+      var g = {};
+      hor.forEach(function (i) {
+        var k = clave(i); g[k] = g[k] || { k: k, n: 0, hp: 0, ht: 0, hi: 0, eqs: [] };
+        g[k].n++; g[k].hp += i.hp; g[k].ht += i.ht; g[k].hi += i.hi; g[k].eqs.push(i);
+      });
+      return Object.keys(g).map(function (k) { var x = g[k]; x.u = x.hp ? Math.min(1, x.ht / x.hp) : 0; return x; }).sort(function (a, b) { return b.u - a.u; });
+    };
+    var porLinea = agrupa(function (i) { return i.linea; });
+    var porFam = agrupa(function (i) { return i.eq.Familia || 'SIN FAMILIA'; });
+    var nomLinea = function (l) { return { 'LINEA AMARILLA': 'Línea amarilla', 'LINEA BLANCA': 'Línea blanca', 'TRANSPORTE DE PERSONAL': 'Transporte de personal', OTROS: 'Otros' }[l] || l; };
+
+    // decisiones sugeridas por familia
+    var dec = [];
+    porFam.forEach(function (f) {
+      if (f.n >= 2 && f.u < 0.5) {
+        var porEq = f.hp / f.n, necesarios = Math.max(1, Math.ceil(f.ht / (porEq * 0.75)));
+        var sobran = f.n - necesarios;
+        if (sobran > 0) dec.push({ tipo: 'des', txt: '<strong>' + esc(f.k) + '</strong>: ' + f.n + ' equipos al ' + pct1(f.u) + '. El trabajo del periodo lo harían ' + necesarios + '. Evaluar desmovilizar ' + sobran + '.' });
+      }
+      if (f.u >= 0.85 && f.eqs.every(function (i) { return i.u >= 0.75; })) dec.push({ tipo: 'mov', txt: '<strong>' + esc(f.k) + '</strong>: ' + f.n + ' equipo(s) al ' + pct1(f.u) + ' (saturados). Evaluar movilizar 1 más si el frente lo requiere.' });
+    });
+    hor.filter(function (i) { return i.clase === 'FALLAS'; }).forEach(function (i) {
+      dec.push({ tipo: 'mtto', txt: '<strong>' + esc(i.eq.CodigoInterno) + '</strong>: uso ' + pct1(i.u) + ' con disponibilidad ' + pct1(i.dm) + '. El bajo uso es por fallas: revisar mantenimiento antes de decidir.' });
+    });
+    var sinParte = ind.filter(function (i) { return i.clase === 'SINDATO' && i.diasObra >= 3; });
+    if (sinParte.length) dec.push({ tipo: 'sin', txt: sinParte.length + ' equipo(s) sin ningún parte en ' + (rg.desde === rg.hasta ? 'el día' : 'el periodo') + ': ' + sinParte.slice(0, 8).map(function (i) { return '<strong>' + esc(i.eq.CodigoInterno) + '</strong>'; }).join(', ') + (sinParte.length > 8 ? '…' : '') + '. Confirmar si está parado (stand-by) o si el operador no reporta.' });
+    var DEC = { des: ['Evaluar desmovilizar', 'var(--peligro)'], mov: ['Evaluar movilizar', 'var(--ok)'], mtto: ['Revisar mantenimiento', '#FFD60A'], sin: ['Sin reporte', 'var(--texto-3)'] };
+
+    // tendencia diaria
+    var dias = [];
+    for (var d = rg.desde; d <= rg.hasta; d = R.sumarDias(d, 1)) dias.push(d);
+    var tend = dias.map(function (x) {
+      var hp = 0, ht = 0;
+      hor.forEach(function (i) { hp += i.hpDia[x] || 0; ht += Math.min(i.htDia[x] || 0, i.hpDia[x] || 0); });
+      return { d: x, u: hp ? ht / hp : 0, hp: hp };
+    });
+
+    // ranking
+    var lista = ind.filter(function (i) { return filtroUtil === 'TODOS' || i.clase === filtroUtil; }).sort(function (a, b) { return a.u - b.u; });
+    var segBar = function (partes) {
+      var tot = partes.reduce(function (s, p) { return s + p[0]; }, 0) || 1;
+      return '<div class="apilada">' + partes.map(function (p) { return p[0] > 0 ? '<i style="width:' + (p[0] / tot * 100).toFixed(2) + '%;background:' + p[1] + '" title="' + p[2] + '"></i>' : ''; }).join('') + '</div>';
+    };
+
+    var h = pestanasMantto('utilizacion') + filtroPeriodo(rg) +
+      (rg.hasta === hoy() ? '<p class="mini">Los partes de hoy se completan al terminar cada turno; el día en curso puede verse bajo.</p>' : '') +
+      '<div class="etiqueta-seccion">Resumen · ' + esc(rg.nombre) + '</div><div class="kpis">' +
+      kpi(pct1(U), 'Utilización de la flota', U >= 0.6 ? '' : 'acento', 'Horas trabajadas / programadas') +
+      kpi(pct1(UE), 'Uso de horas disponibles', '', 'Sin contar horas en falla') +
+      kpi(n1(HT) + ' h', 'Horas trabajadas', '', 'de ' + n1(HP) + ' h programadas') +
+      kpi(n1(HO) + ' h', 'Horas ociosas', HO > HT ? 'acento' : '', 'Equipo operativo sin trabajar') +
+      kpi(cuenta('BAJA'), 'Equipos con bajo uso', cuenta('BAJA') ? 'acento' : '', 'Menos de 60 %') +
+      kpi(cuenta('ALTA'), 'Equipos de alto rendimiento', '', '85 % o más') + '</div>' +
+
+      '<div class="tarjeta" style="display:grid;gap:10px"><h3>¿En qué se fueron las horas programadas?</h3>' +
+      segBar([[HT, 'var(--ok)', 'Trabajadas'], [HI, 'var(--peligro)', 'En falla'], [HO, 'var(--texto-3)', 'Ociosas']]) +
+      '<div class="leyenda mini"><span><b style="background:var(--ok)"></b>Trabajadas ' + n1(HT) + ' h (' + pct1(HP ? HT / HP : 0) + ')</span>' +
+      '<span><b style="background:var(--peligro)"></b>En falla ' + n1(HI) + ' h (' + pct1(HP ? HI / HP : 0) + ')</span>' +
+      '<span><b style="background:var(--texto-3)"></b>Ociosas ' + n1(HO) + ' h (' + pct1(HP ? HO / HP : 0) + ')</span></div>' +
+      (HPROD ? '<p class="mini">Horas productivas registradas en actividades: <strong>' + n1(HPROD) + ' h</strong>.</p>' : '') + '</div>' +
+
+      '<div class="tarjeta" style="display:grid;gap:10px"><h3>Decisiones sugeridas</h3>' + (dec.length ? dec.map(function (x) {
+        return '<div class="decision" style="border-left-color:' + DEC[x.tipo][1] + '"><div class="mini" style="color:' + DEC[x.tipo][1] + ';font-weight:700;text-transform:uppercase;letter-spacing:.06em">' + DEC[x.tipo][0] + '</div><div>' + x.txt + '</div></div>';
+      }).join('') : '<p class="mini">Ninguna alerta: la flota se usa dentro de lo normal en este periodo.</p>') + '</div>' +
+
+      '<div class="tarjeta" style="display:grid;gap:8px"><h3>Utilización por línea</h3>' + (porLinea.length ? porLinea.map(function (g) {
+        return '<div class="entre mini"><span>' + esc(nomLinea(g.k)) + '</span><span>' + g.n + ' equipo(s) · ' + n1(g.ht) + ' de ' + n1(g.hp) + ' h</span></div>' + barra(g.u * 100, colorU(g.u), pct1(g.u));
+      }).join('') : '<p class="mini">Sin datos.</p>') + '</div>' +
+
+      '<div class="tarjeta" style="display:grid;gap:8px"><h3>Utilización por tipo de equipo</h3>' + (porFam.length ? porFam.map(function (g) {
+        return '<div class="entre mini"><span><strong>' + esc(g.k) + '</strong></span><span>' + g.n + ' equipo(s)</span></div>' + barra(g.u * 100, colorU(g.u), pct1(g.u));
+      }).join('') : '<p class="mini">Sin datos.</p>') + '</div>' +
+
+      (dias.length > 1 ? '<div class="tarjeta"><h3>Utilización día a día</h3><div class="tendencia">' +
+        '<div class="meta" style="bottom:60%" title="Meta 60 %"></div><div class="meta ok" style="bottom:85%" title="85 %"></div>' + tend.map(function (t) {
+        return '<div title="' + fF(t.d) + ': ' + pct1(t.u) + '" style="height:' + Math.max(3, Math.min(1, t.u) * 100) + '%;background:' + (t.hp ? colorU(t.u) : 'var(--sup-2)') + '"></div>';
+      }).join('') + '</div><div class="entre mini"><span>' + fF(rg.desde).substring(0, 5) + '</span><span>Líneas: 60 % y 85 %</span><span>' + fF(rg.hasta).substring(0, 5) + '</span></div></div>' : '') +
+
+      '<div class="tarjeta" style="display:grid;gap:10px"><h3>Ranking por equipo</h3>' +
+      '<div class="segmento envuelve" role="group" aria-label="Filtrar equipos">' + [['TODOS', 'Todos (' + ind.length + ')'], ['BAJA', 'Bajo (' + cuenta('BAJA') + ')'], ['FALLAS', 'Fallas (' + cuenta('FALLAS') + ')'], ['NORMAL', 'Aceptable (' + cuenta('NORMAL') + ')'], ['ALTA', 'Alto (' + cuenta('ALTA') + ')'], ['SINDATO', 'Sin partes (' + cuenta('SINDATO') + ')']].map(function (x) {
+        return '<button type="button" data-a="filtroUtil" data-v="' + x[0] + '" aria-pressed="' + (x[0] === filtroUtil) + '">' + x[1] + '</button>';
+      }).join('') + '</div>' +
+      (lista.length ? lista.map(function (i) {
+        var c = CLASE_UTIL[i.clase];
+        var det = i.soloKm
+          ? n1(i.km) + ' km · ' + (i.diasParte ? n1(i.km / i.diasParte) + ' km/día · ' : '') + i.diasParte + ' de ' + i.diasObra + ' días con parte'
+          : n1(i.ht) + ' de ' + n1(i.hp) + ' h · disp. ' + pct1(i.dm) + ' · ' + i.diasParte + ' de ' + i.diasObra + ' días con parte';
+        return '<div class="fila-util"><div class="entre"><span><strong>' + esc(i.eq.CodigoInterno) + '</strong> <span class="mini">' + esc(i.eq.Familia || '') + '</span></span>' +
+          '<span class="etiqueta-util" style="color:' + c.c + ';border-color:' + c.c + '">' + c.t + '</span></div>' +
+          barra(i.u * 100, c.c, pct1(i.u)) + '<div class="mini">' + det + '</div></div>';
+      }).join('') : '<p class="mini">No hay equipos en este grupo.</p>') + '</div>' +
+
+      '<p class="mini">Cálculo: horas programadas = 10 h por turno de lunes a sábado y 5 h el domingo, solo los días que el equipo estuvo en obra (el turno noche cuenta cuando hubo parte de noche). ' +
+      'Utilización = horas de horómetro / horas programadas. Horas ociosas = programadas − trabajadas − en falla. Para los equipos que solo tienen kilometraje, la utilización es días con parte / días en obra. ' +
+      'Los equipos sin ningún parte en el periodo no entran en los totales; se muestran en "Sin reporte". Sugerencias: menos de 60 % = bajo uso; 85 % o más = alto rendimiento; "desmovilizar" se sugiere cuando un tipo de equipo con 2 o más unidades trabaja menos del 50 %.</p>';
+    marco('Utilización de equipos', h);
   }
 
   /** Registrar el último mantenimiento preventivo de un equipo (actualiza el plan en el servidor). */
@@ -2152,6 +2327,16 @@
     fallaAdmin: function (b) { formFallaAdmin(b.dataset.k || ''); },
     mttoForm: function (b) { formMantto(b.dataset.k); },
     periodoMantto: function (b) { periodoMantto = b.dataset.v; render(); },
+    rangoAplicar: function () {
+      var a = (document.getElementById('rgDesde') || {}).value, z = (document.getElementById('rgHasta') || {}).value;
+      var min = R.sumarDias(hoy(), -89);
+      if (!a || !z) { toast('Elija las dos fechas.'); return; }
+      if (a > z) { toast('La fecha "desde" no puede ser mayor que "hasta".'); return; }
+      if (z > hoy()) { toast('La fecha "hasta" no puede ser futura.'); return; }
+      if (a < min) { toast('El celular guarda los últimos 90 días: desde ' + fF(min) + '.'); return; }
+      rangoLibre = { desde: a, hasta: z }; periodoMantto = 'rango'; render();
+    },
+    filtroUtil: function (b) { filtroUtil = b.dataset.v; render(); },
     filtroPlan: function (b) { filtroPlan = b.dataset.v; render(); },
     ojo: function (b) {
       var inp = b.parentNode.querySelector('input');
@@ -2283,6 +2468,7 @@
     if (r[1] === 'fallas' && !esOp) return vFallas();
     if (r[1] === 'mantto' && !esOp) return vMantto();
     if (r[1] === 'plan' && !esOp) return vPlan();
+    if (r[1] === 'utilizacion' && !esOp) return vUtilizacion();
     if (r[1] === 'cuenta') return vCuenta();
     if (esOp && r[1] === 'inicio') return vInicio();
     location.replace(esOp ? '#/inicio' : '#/revisar');
