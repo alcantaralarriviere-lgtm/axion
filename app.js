@@ -1601,7 +1601,8 @@
     for (var k in LINEA_FAM) if (LINEA_FAM[k].indexOf(eq.Familia) >= 0) return k;
     return 'OTROS';
   }
-  function equiposObra() { return (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA'; }); }
+  function equiposObra() { return (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA' && !(e.FechaSalidaObra && e.FechaSalidaObra <= hoy()); }); }
+  function equiposDesmovilizados() { return (cat().EQUIPOS || []).filter(function (e) { return equiposObra().indexOf(e) < 0; }); }
   function pestanasMantto(act) {
     if (rol() === 'OPERADOR') return '';
     return '<div class="segmento" role="group" aria-label="Mantenimiento">' + [['mantto', 'Indicadores'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto']].map(function (x) {
@@ -1672,14 +1673,16 @@
     var ahoraMs = Date.now();
     var partes = N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO' && p.FechaTrabajo >= rg.desde && p.FechaTrabajo <= rg.hasta; });
     var fallas = N.filas('FALLAS');
-    return equiposObra().filter(function (e) {
+    // un equipo solo tiene horas programadas los días que estuvo en obra (desde su ingreso hasta antes de su salida)
+    var enObra = function (e, x) { return (!e.FechaIngresoObra || x >= e.FechaIngresoObra) && (!e.FechaSalidaObra || x < e.FechaSalidaObra) && !(e.Estado === 'BAJA' && !e.FechaSalidaObra); };
+    return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
-      return e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA');
+      return e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA') && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var noches = {};
       partes.forEach(function (p) { if (p.EquipoID === e.EquipoID && p.Turno === 'NOCHE') noches[p.FechaTrabajo] = 1; });
       var hpDia = {}, hp = 0;
-      dias.forEach(function (x) { hpDia[x] = horasProgDia(x) * (noches[x] ? 2 : 1); hp += hpDia[x]; });
+      dias.forEach(function (x) { hpDia[x] = enObra(e, x) ? horasProgDia(x) * (noches[x] ? 2 : 1) : 0; hp += hpDia[x]; });
       var paraDia = {}, nFallas = 0, porSistema = {};
       fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; }).forEach(function (f) {
         var a = Date.parse(f.FechaHoraInicio), b = f.FechaHoraFin ? Date.parse(f.FechaHoraFin) : ahoraMs;
@@ -1755,7 +1758,7 @@
       }).join('') + '</div>' +
       '<div class="etiqueta-seccion">Equipos en obra</div><div class="kpis">' +
       kpi(eqs.length, 'Equipos en obra', 'acento') +
-      kpi((porLinea['LINEA AMARILLA'] || 0) + (porLinea['LINEA BLANCA'] || 0), 'De producción (amarilla + blanca)') +
+      kpi(equiposDesmovilizados().length, 'Desmovilizados') +
       kpi(porLinea['LINEA AMARILLA'] || 0, 'Línea amarilla') + kpi(porLinea['LINEA BLANCA'] || 0, 'Línea blanca') +
       kpi(porLinea['TRANSPORTE DE PERSONAL'] || 0, 'Transporte de personal') + kpi(porLinea.OTROS || 0, 'Otros (torres, grupos)') + '</div>' +
       '<div class="etiqueta-seccion">Indicadores · ' + esc(rg.nombre) + ' (' + fF(rg.desde).substring(0, 5) + ' a ' + fF(rg.hasta).substring(0, 5) + ')</div><div class="kpis">' +
@@ -1787,6 +1790,35 @@
     marco('Mantenimiento', h);
   }
 
+  /** Registrar el último mantenimiento preventivo de un equipo (actualiza el plan en el servidor). */
+  function formMantto(eqID) {
+    var e = equipo(eqID), m = busca('MANTENIMIENTOS', 'EquipoID', eqID);
+    var km = m.UM ? String(m.UM).toUpperCase() === 'KM' : !e.TieneHorometro;
+    var actual = R.num(km ? e.UltimoOdometro : e.UltimoHorometro);
+    var sel = function (name, vals, v) { return '<select name="' + name + '">' + vals.map(function (x) { return '<option value="' + x + '"' + (x === v ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>'; };
+    var servicios = ['PM1', 'PM2', 'PM3', 'PM4', 'PMA'];
+    hoja('Mantenimiento · ' + (e.CodigoInterno || ''),
+      '<p class="sub">' + esc(e.Familia || '') + (m.ServicioUltimo ? ' · último: ' + esc(m.ServicioUltimo) + (m.FechaUltimo ? ' el ' + fF(m.FechaUltimo) : '') : '') + '</p>' +
+      '<div class="dos">' + campo('Fecha del mantenimiento', '<input name="FechaUltimo" type="date" value="' + hoy() + '" max="' + hoy() + '">', true) +
+      campo(km ? 'Kilometraje' : 'Horómetro', '<input name="LecturaUltimo" type="number" inputmode="decimal" step="0.1" min="0" value="' + (actual === null ? '' : actual) + '">', true) + '</div>' +
+      '<div class="dos">' + campo('Servicio realizado', sel('ServicioUltimo', servicios, m.ServicioProximo || 'PM1'), true) +
+      campo('Próximo servicio', sel('ServicioProximo', servicios, 'PM1'), true) + '</div>' +
+      campo('Cada cuántas ' + (km ? 'km' : 'horas'), '<input name="Intervalo" type="number" inputmode="decimal" min="1" value="' + esc(m.Intervalo || (km ? 5000 : 250)) + '">', true) +
+      '<p class="mini">El próximo mantenimiento se calcula solo: lectura + intervalo.</p>',
+      function (v) {
+        if (!v.FechaUltimo || v.LecturaUltimo === '' || !v.Intervalo) return 'Complete fecha, lectura e intervalo.';
+        var fila = { EquipoID: eqID, FechaUltimo: v.FechaUltimo, LecturaUltimo: Number(v.LecturaUltimo), ServicioUltimo: v.ServicioUltimo,
+          ServicioProximo: v.ServicioProximo, Intervalo: Number(v.Intervalo), UM: km ? 'KM' : 'HR', Linea: m.Linea || lineaDe(e) };
+        if (!navigator.onLine) return 'Se necesita señal para registrar el mantenimiento.';
+        N.api('sincronizar', { cambios: [{ id: '1', op: 'guardar', tabla: 'MANTENIMIENTOS', fila: fila }] }).then(function (r) {
+          var res = r.resultados[0];
+          if (!res.ok) { toast(res.error); return; }
+          toast('Mantenimiento registrado. Próximo ' + res.fila.ServicioProximo + ' a ' + n1(res.fila.LecturaProxima));
+          return N.sincronizar(true).then(render);
+        }, function (err) { toast(err.message); });
+      }, 'Registrar');
+  }
+
   var filtroPlan = 'TODOS';
   function vPlan() {
     var filas = equiposObra().map(function (e) { return Object.assign({ eq: e }, estadoMantto(e)); });
@@ -1805,7 +1837,8 @@
           (x.m ? '<div class="mini num">Último: ' + esc(m.ServicioUltimo || '—') + (m.FechaUltimo ? ' el ' + fF(m.FechaUltimo) : '') + (m.LecturaUltimo !== '' ? ' a ' + n1(m.LecturaUltimo) : '') + '</div>' +
             '<div class="mini num">Próximo: ' + esc(m.ServicioProximo || '—') + ' a ' + n1(x.prox) + ' ' + (x.um || '') + ' · actual ' + (x.actual === null || x.actual === undefined ? '—' : n1(x.actual)) +
             (x.restante !== undefined ? ' · faltan <strong>' + n1(x.restante) + ' ' + x.um + '</strong>' : '') + '</div>' : '<div class="mini">Sin datos en el plan de mantenimiento.</div>') +
-          '</div>' + chipM(x.estado) + '</div></div>';
+          '</div>' + chipM(x.estado) + '</div>' +
+          '<button class="btn chico" style="margin-top:10px" data-a="mttoForm" data-k="' + x.eq.EquipoID + '">' + ic('wrench') + 'Registrar mantenimiento</button></div>';
       }).join('') + '</div>' +
       '<p class="mini">"Por vencer" = le falta el 15 % del intervalo o menos (mínimo 25 h o 300 km). La lectura actual es la última que llegó en los partes diarios.</p>');
   }
@@ -2117,6 +2150,7 @@
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
     fallaAdmin: function (b) { formFallaAdmin(b.dataset.k || ''); },
+    mttoForm: function (b) { formMantto(b.dataset.k); },
     periodoMantto: function (b) { periodoMantto = b.dataset.v; render(); },
     filtroPlan: function (b) { filtroPlan = b.dataset.v; render(); },
     ojo: function (b) {
