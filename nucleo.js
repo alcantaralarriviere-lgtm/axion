@@ -56,16 +56,42 @@ var Nucleo = (function () {
   function alCambiar(f) { oyentes.push(f); }
 
   // ------------------------------------------------------------ red
+  // Google a veces pierde o demora la respuesta (la petición se queda colgada o llega el saludo del servidor
+  // en vez de la respuesta): cada pedido tiene un tiempo máximo y se reintenta solo.
+  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 40000, subirFoto: 90000, leerFoto: 60000 };
+  var REINTENTOS = { leerFoto: 0, subirFoto: 1, login: 3 };
   function api(accion, datos) {
     var url = (window.AXION_CONFIG && AXION_CONFIG.API_URL) || '/api';
-    return fetch(url, { method: 'POST', body: JSON.stringify({ accion: accion, datos: datos, token: S.token }) })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); },
-            function () { var e = new Error('Sin conexión con el servidor.'); e.codigo = 'RED'; throw e; })
-      .then(function (j) {
-        if (j.servidor) S.servidor = j.servidor;
-        if (!j.ok) { var e = new Error(j.error); e.codigo = j.codigo; throw e; }
-        return j;
-      });
+    var cuerpo = JSON.stringify({ accion: accion, datos: datos, token: S.token });
+    var quedan = REINTENTOS[accion] !== undefined ? REINTENTOS[accion] : 2;
+    var falla = function (msg, codigo) { var e = new Error(msg); e.codigo = codigo; return e; };
+    var intento = function () {
+      var ctl = window.AbortController ? new AbortController() : null;
+      var reloj = setTimeout(function () { if (ctl) ctl.abort(); }, ESPERA_MAX[accion] || 45000);
+      return fetch(url, { method: 'POST', body: cuerpo, signal: ctl ? ctl.signal : undefined })
+        .then(function (r) {
+          if (!r.ok) throw falla('El servidor respondió ' + r.status + '. Se reintentará.', 'OCUPADO');
+          return r.text();
+        }, function (e) {
+          throw e && e.name === 'AbortError' ? falla('El servidor de Google está demorando. Se reintentará solo.', 'OCUPADO')
+            : falla('Sin conexión con el servidor.', 'RED');
+        })
+        .then(function (txt) {
+          clearTimeout(reloj);
+          var j;
+          try { j = JSON.parse(txt); } catch (x) { throw falla('Google devolvió una respuesta incompleta. Se reintentará solo.', 'OCUPADO'); }
+          if (j.servidor) S.servidor = j.servidor;
+          if (!j.ok) throw falla(j.error, j.codigo);
+          return j;
+        }, function (e) { clearTimeout(reloj); throw e; })
+        .catch(function (e) {
+          if ((e.codigo === 'OCUPADO' || e.codigo === 'RED') && quedan-- > 0 && navigator.onLine !== false) {
+            return new Promise(function (ok) { setTimeout(ok, 1500); }).then(intento);
+          }
+          throw e;
+        });
+    };
+    return intento();
   }
 
   // ------------------------------------------------------------ sesión
@@ -229,6 +255,8 @@ var Nucleo = (function () {
     }, function (e) {
       ia[evId] = { estado: 'error', msg: e.message, codigo: e.codigo, t: Date.now() };
       if (e.codigo === 'IA_ERROR') descargar(false).catch(function () {});  // trae la fila ERROR guardada
+      // la respuesta se perdió en el camino pero el servidor pudo haber leído la foto: se trae lo leído en un rato
+      if (e.codigo === 'OCUPADO' || e.codigo === 'RED') setTimeout(function () { if (S && S.token) descargar(false).then(avisar, function () {}); }, 20000);
       avisar();
     });
   }
@@ -240,7 +268,7 @@ var Nucleo = (function () {
       var est = ia[e.EvidenciaID];
       return e._srv && IA_TIPOS.indexOf(e.TipoEvidencia) >= 0 && p && p.OperadorID === S.perfil.OperadorID &&
         (p.Estado === 'BORRADOR' || p.Estado === 'OBSERVADO') && !lecturaDe(e.EvidenciaID) &&
-        !(est && (est.estado === 'leyendo' || Date.now() - est.t < 10 * 60000));
+        !(est && (est.estado === 'leyendo' || Date.now() - est.t < (est.codigo === 'IA_LIMITE' || est.codigo === 'IA_ERROR' ? 10 : 3) * 60000));
     }).slice(0, 3).forEach(function (e) { leerIA(e.EvidenciaID); });
   }
 
