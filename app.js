@@ -1733,8 +1733,12 @@
       var f = String(x[0] || '').substring(0, 10), e = x[1];
       if (!e || !f) return;
       var d = ((porEq[e] = porEq[e] || {})[f] = porEq[e][f] || { hp: 0, hi: 0, hm: 0, paradas: 0, sis: {} });
-      d.hp += Number(x[3]) || 0; d.hi += Number(x[4]) || 0; d.hm += Number(x[5]) || 0; d.paradas += Number(x[8]) || 0;
-      if (x[9] && Number(x[4]) > 0) d.sis[x[9]] = (d.sis[x[9]] || 0) + Number(x[4]);
+      // nunca valores imposibles: horas negativas (reparación que cruzó la medianoche) se corrigen y nada pasa de las horas programadas
+      var hp = Math.max(0, Number(x[3]) || 0), hr = Number(x[4]) || 0;
+      if (hr < 0) hr += 24;
+      hr = Math.max(0, Math.min(hr, hp || 24));
+      d.hp += hp; d.hi = Math.min(d.hi + hr, d.hp); d.hm += Math.max(0, Number(x[5]) || 0); d.paradas += Math.max(0, Number(x[8]) || 0);
+      if (x[9] && hr > 0) d.sis[x[9]] = (d.sis[x[9]] || 0) + hr;
     });
     var ini = '';
     N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO'; }).forEach(function (p) { if (!ini || p.FechaTrabajo < ini) ini = p.FechaTrabajo; });
@@ -1810,7 +1814,7 @@
         if (hx.hi > 0 && !Object.keys(hx.sis).length) porSistema['SIN SISTEMA (EXCEL)'] = (porSistema['SIN SISTEMA (EXCEL)'] || 0) + hx.hi;
       });
       var hi = 0, hiDia = {};
-      dias.forEach(function (x) { hiDia[x] = Math.min(paraDia[x] || 0, hpDia[x]); hi += hiDia[x]; });
+      dias.forEach(function (x) { hiDia[x] = Math.max(0, Math.min(paraDia[x] || 0, hpDia[x])); hi += hiDia[x]; });
       // si se recortó por el tope del día, el reparto por sistema se ajusta en proporción
       var totSis = Object.keys(porSistema).reduce(function (s, k) { return s + porSistema[k]; }, 0);
       if (totSis > 0) Object.keys(porSistema).forEach(function (k) { porSistema[k] = porSistema[k] * hi / totSis; });
@@ -1978,8 +1982,9 @@
       if (!x.soloKm) { s.hpH += x.hp; s.ht += Math.min(x.ht, x.hp || x.ht); }
       return s;
     }, { hp: 0, hi: 0, n: 0, hpH: 0, ht: 0 });
+    t.hi = Math.max(0, Math.min(t.hi, t.hp));
     t.dm = t.hp ? (t.hp - t.hi) / t.hp : null;
-    t.u = t.hpH ? t.ht / t.hpH : null;
+    t.u = t.hpH ? Math.min(1, t.ht / t.hpH) : null;
     t.mttr = t.n ? t.hi / t.n : null;
     t.mtbf = t.n ? (t.hp - t.hi) / t.n : null;
     return t;
