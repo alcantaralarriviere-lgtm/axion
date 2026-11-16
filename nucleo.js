@@ -389,6 +389,7 @@ var Nucleo = (function () {
     return api('datos', { desde: completo ? null : S.marca }).then(function (d) {
       S.perfil = d.perfil;
       S.cat = d.catalogos;
+      if (Array.isArray(d.HISTORICO)) S.hist = d.HISTORICO;  // solo viene en la descarga completa
       var pendiente = {};
       S.outbox.forEach(function (it) { pendiente[it.ref] = true; if (it.parte) pendiente['P:' + it.parte] = true; });
       var partesNuevas = {};
