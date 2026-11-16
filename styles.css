@@ -75,6 +75,35 @@ a { color: var(--acento); }
   background: var(--peligro); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 5px;
   border: 2px solid var(--acento); }
 
+.nav-marca { display: none; }
+
+/* ---------- computadora: menú lateral y tableros a lo ancho (en el celular no cambia nada) */
+@media (min-width: 1024px) {
+  .app { max-width: none; padding-bottom: 32px; }
+  body.con-nav .app { margin-left: 240px; }
+  .nav { left: 0; top: 0; bottom: 0; right: auto; width: 240px; padding: 16px 0 16px 16px; justify-content: stretch; pointer-events: auto; }
+  .nav-in { display: flex; flex-direction: column; gap: 6px; max-width: none; height: 100%; border-radius: 26px; padding: 22px 12px; }
+  .nav-marca { display: block; color: #fff; font-weight: 900; letter-spacing: .16em; font-size: 20px; padding: 4px 14px 22px; }
+  .nav a { grid-auto-flow: column; justify-content: start; align-content: center; place-items: center start; gap: 12px; padding: 0 16px; min-height: 50px; font-size: 15px; }
+  .nav a span:not(.badge) { margin: 0; }
+  .nav .badge { position: static; margin-left: 4px; border: 0; }
+  .cabecera { padding: 24px 32px 12px; }
+  .cabecera .titulo { font-size: 32px; }
+  .contenido { padding: 6px 32px 32px; max-width: 1480px; }
+  .contenido.tablero { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 18px; }
+  .contenido.tablero > :not(.tarjeta), .contenido.tablero > .filtro-periodo, .contenido.tablero > .tarjeta.fila { grid-column: 1 / -1; }
+  .contenido.tablero .kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .contenido.tablero .filtro-periodo .segmento { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .contenido.tablero > .lista { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .contenido.tablero .accesos, .contenido .accesos { max-width: 520px; }
+  .toast { bottom: 28px; left: calc(50% + 120px); }
+  .pie-asistente { bottom: 0; }
+}
+@media (min-width: 1500px) {
+  .contenido.tablero { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .contenido.tablero > .lista { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 /* ---------- tipografía */
 h1 { font-size: 28px; line-height: 1.15; margin: 4px 0 0; font-weight: 800; letter-spacing: -.02em; }
 h2 { font-size: 20px; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -.01em; }

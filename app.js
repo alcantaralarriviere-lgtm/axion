@@ -98,7 +98,7 @@
         : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros'], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]];
       var actual = location.hash.split('/').slice(0, 2).join('/');
       if (['#/fallas', '#/plan', '#/falla', '#/utilizacion', '#/equipos', '#/equipo', '#/reportes'].indexOf(actual) >= 0) actual = '#/mantto';
-      nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in">' + items.map(function (it) {
+      nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in"><span class="nav-marca">AXION</span>' + items.map(function (it) {
         var act = actual === it[0] || (it[0] === '#/parte/nuevo' && actual === '#/parte');
         return '<a href="' + it[0] + '"' + (act ? ' aria-current="page"' : '') + '>' + ic(it[1]) + '<span>' + it[2] + '</span>' +
           (it[3] ? '<span class="badge" aria-label="' + it[3] + ' avisos">' + it[3] + '</span>' : '') + '</a>';
@@ -109,7 +109,8 @@
       '<span class="titulo">' + esc(titulo) + '</span>' +
       '<button class="chip-sync ' + (!online ? 'off' : (pend ? 'pend' : '')) + '" data-a="sync" aria-label="Estado de sincronización: ' + sync + '">' +
       ic(online ? (pend ? 'refresh' : 'cloud') : 'cloudoff') + '<span>' + sync + '</span></button></header>' +
-      '<main class="contenido" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
+      '<main class="contenido' + (op.tablero ? ' tablero' : '') + '" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
+    document.body.classList.toggle('con-nav', !op.sinNav);
     hidratarFotos();
   }
   /** Fila de accesos rápidos con íconos redondos: [ruta o acción, ícono, texto]. Una ruta empieza con '#'. */
@@ -2026,7 +2027,7 @@
       '<div class="tarjeta" style="display:grid;gap:8px"><div class="entre"><h3>Disponibilidad y utilización</h3><span class="mini">' + nomModo + '</span></div>' +
       graficoLineas(et, [{ nombre: 'Disponibilidad', color: 'var(--ok)', valores: se.puntos.map(function (p) { return p.dm; }) },
         { nombre: 'Utilización', color: 'var(--texto)', valores: se.puntos.map(function (p) { return p.u; }) }],
-        { pct: true, min: 0, max: 1.05, metas: [{ v: 0.9, color: 'var(--aviso)', et: 'Meta DM 90%' }] }) + '</div>' +
+        { pct: true, min: 0, max: 1, metas: [{ v: 0.9, color: 'var(--aviso)', et: 'Meta DM 90%' }] }) + '</div>' +
       '<div class="tarjeta" style="display:grid;gap:8px"><div class="entre"><h3>MTTR y MTBF</h3><span class="mini">horas · ' + nomModo + '</span></div>' +
       graficoLineas(et, [{ nombre: 'MTBF (entre fallas)', color: 'var(--ok)', valores: se.puntos.map(function (p) { return p.mtbf; }) },
         { nombre: 'MTTR (reparación)', color: 'var(--peligro)', valores: se.puntos.map(function (p) { return p.mttr; }) }], { unidad: ' h' }) +
@@ -2049,7 +2050,7 @@
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
       '<p class="mini">Línea amarilla y blanca con horómetro. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
       'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas. MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
-    marco('Tableros', h);
+    marco('Tableros', h, { tablero: true });
   }
 
   /** Lista de equipos en obra con sus indicadores del periodo; tocar uno abre su ficha. */
@@ -2073,7 +2074,7 @@
           (i ? '<div class="dos mini"><div>Disponibilidad ' + barra(i.dm * 100, colorDM(i.dm), pct1(i.dm)) + '</div>' +
             '<div>' + (u !== null ? 'Utilización ' + barra(u * 100, u >= .6 ? 'var(--texto)' : 'var(--aviso)', pct1(u)) : 'Recorrido <strong style="color:var(--texto)">' + n1(i.km) + ' km</strong>') + '</div></div>' : '') + '</a>';
       }).join('') + '</div>';
-    marco('Equipos', h);
+    marco('Equipos', h, { tablero: true });
   }
 
   /** Ficha de un equipo: indicadores con tendencia, horómetro, fallas, mantenimientos y partes. */
@@ -2114,7 +2115,7 @@
       kpiTend(String(t.n), 'Fallas', t.n, ta.n, false) + '</div>' +
       '<div class="tarjeta" style="display:grid;gap:8px"><h3>Tendencia</h3>' +
       graficoLineas(et, [{ nombre: 'Disponibilidad', color: 'var(--ok)', valores: se.puntos.map(function (p) { return p.dm; }) }].concat(km ? [] :
-        [{ nombre: 'Utilización', color: 'var(--texto)', valores: se.puntos.map(function (p) { return p.u; }) }]), { pct: true, min: 0, max: 1.05, metas: [{ v: 0.9, color: 'var(--aviso)', et: 'Meta 90%' }] }) + '</div>' +
+        [{ nombre: 'Utilización', color: 'var(--texto)', valores: se.puntos.map(function (p) { return p.u; }) }]), { pct: true, min: 0, max: 1, metas: [{ v: 0.9, color: 'var(--aviso)', et: 'Meta 90%' }] }) + '</div>' +
       '<div class="tarjeta" style="display:grid;gap:8px"><h3>' + (km ? 'Odómetro' : 'Horómetro') + '</h3>' +
       (fl.length ? graficoLineas(fl.map(function (f) { return f.substring(8, 10) + '/' + f.substring(5, 7); }), [{ nombre: km ? 'Km' : 'Horas', color: 'var(--texto)', valores: fl.map(function (f) { return lect[f]; }) }],
         { min: Math.floor(Math.min.apply(null, fl.map(function (f) { return lect[f]; })) * 0.995), unidad: km ? ' km' : ' h',
@@ -2133,7 +2134,7 @@
           '<span class="estado ' + (f.Estado === 'CERRADA' ? 'ok' : 'peligro') + '">' + esc(f.Estado === 'CERRADA' ? 'Cerrada' : 'Abierta') + '</span></a>';
       }).join('') : '<p class="mini">Sin fallas registradas en la app.</p>') + '</div>' +
       '<div class="etiqueta-seccion">Últimos partes</div><div class="lista">' + (partes.length ? partes.map(tarjetaParte).join('') : '<p class="mini">Sin partes.</p>') + '</div>';
-    marco(e.CodigoInterno, h, { volver: '#/equipos' });
+    marco(e.CodigoInterno, h, { volver: '#/equipos', tablero: true });
   }
 
   // ------------------------------------------------------------ reportes en Excel (para la supervisión)
@@ -2161,7 +2162,7 @@
       '<li><strong>Mantenimiento</strong>: plan preventivo (vencidos, por vencer) e historial.</li><li><strong>Fallas</strong>: las registradas en el periodo.</li></ul>' +
       '<button type="button" class="btn primario ancho" data-a="descargarExcel">' + ic('file') + 'Descargar Excel</button></div>' +
       '<p class="mini">El archivo se arma en el celular o la computadora con los datos ya sincronizados. Sincronice antes para tener lo último.</p>';
-    marco('Reportes', h);
+    marco('Reportes', h, { tablero: true });
   }
   function descargarExcel() {
     var rg = rangoMantto();
@@ -2366,7 +2367,7 @@
       '<p class="mini">Cálculo: horas programadas = 10 h por turno de lunes a sábado y 5 h el domingo, solo los días que el equipo estuvo en obra (el turno noche cuenta cuando hubo parte de noche). ' +
       'Utilización = horas de horómetro / horas programadas. Horas ociosas = programadas − trabajadas − en falla. Para los equipos que solo tienen kilometraje, la utilización es días con parte / días en obra. ' +
       'Los equipos sin ningún parte en el periodo no entran en los totales; se muestran en "Sin reporte". Sugerencias: menos de 60 % = bajo uso; 85 % o más = alto rendimiento; "desmovilizar" se sugiere cuando un tipo de equipo con 2 o más unidades trabaja menos del 50 %.</p>';
-    marco('Utilización', h);
+    marco('Utilización', h, { tablero: true });
   }
 
   /** Registrar el último mantenimiento preventivo de un equipo (actualiza el plan en el servidor). */
