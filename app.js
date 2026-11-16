@@ -112,6 +112,14 @@
       '<main class="contenido" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
     hidratarFotos();
   }
+  /** Fila de accesos rápidos con íconos redondos: [ruta o acción, ícono, texto]. Una ruta empieza con '#'. */
+  function accesos(items) {
+    return '<nav class="accesos" aria-label="Accesos rápidos">' + items.map(function (x) {
+      return x[0].charAt(0) === '#'
+        ? '<a class="acceso" href="' + x[0] + '"><i>' + ic(x[1]) + '</i>' + esc(x[2]) + '</a>'
+        : '<button type="button" class="acceso" data-a="' + x[0] + '"><i>' + ic(x[1]) + '</i>' + esc(x[2]) + '</button>';
+    }).join('') + '</nav>';
+  }
   // ------------------------------------------------------------ buscador (administrador y supervisor)
   var busq = {}, busqTimer = null;
   function normBusq(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[-_./]/g, ''); }
@@ -287,7 +295,8 @@
     var pend = N.filas('PARTES_DIARIOS', function (p) { return p.OperadorID === yo && p.Estado === 'BORRADOR' && !(p.FechaTrabajo === s.fecha && p.Turno === s.turno); });
     var avisoPend = pend.length ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Tiene ' + pend.length + ' parte(s) guardado(s) sin enviar.</strong><div class="sub">Ábralos abajo, en "Últimos partes", y pulse ENVIAR.</div></div></div>' : '';
     var rech = S().rechazados.length ? '<a class="aviso peligro" href="#/cuenta" style="color:inherit;text-decoration:none">' + ic('alert') + '<div><strong>' + S().rechazados.length + ' cambio(s) rechazado(s) por el servidor</strong><div class="sub">Toque para ver el motivo.</div></div></a>' : '';
-    marco('Inicio', '<div><div class="sub">Hola,</div><h1>' + esc(String(perfil().Nombre || '').replace('[DEMO] ', '')) + '</h1></div>' + rech + avisos + avisoPend +
+    marco('Inicio', '<div class="sub">Hola, <strong style="color:var(--texto)">' + esc(String(perfil().Nombre || '').replace('[DEMO] ', '')) + '</strong></div>' +
+      accesos([['#/partes', 'list', 'Mis partes'], ['sync', 'refresh', 'Sincronizar'], ['#/cuenta', 'user', 'Mi cuenta']]) + rech + avisos + avisoPend +
       (turnosMios.length ? h : '<div class="vacio">' + ic('alert') + '<p>No tiene equipos asignados. Avise a su supervisor.</p></div>') + ultimos());
     var fi = document.getElementById('iniFecha');
     if (fi) fi.onchange = function () { if (fi.value && fi.value >= min && fi.value <= max) { selInicio({ fecha: fi.value }); render(); } else toast('Elija una fecha entre ' + fF(min) + ' y ' + fF(max)); };
@@ -346,12 +355,19 @@
   }
   function tarjetaParte(p) {
     var eq = equipo(p.EquipoID);
-    var quien = rol() === 'OPERADOR' ? (eq.CodigoInterno || '') : nombreOp(p.OperadorID) + ' · ' + (eq.CodigoInterno || p.EquipoID);
-    return '<a class="tarjeta tocable" href="#/parte/' + p.ParteID + '" style="text-decoration:none;color:inherit;display:block">' +
-      '<div class="entre"><div style="min-width:0"><div class="codigo">' + esc(p.CodigoParte || 'Nuevo parte') + '</div><h3>' + esc(quien) + '</h3>' +
-      '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(p.Turno) + ' · ' + n1(p.HorasTrabajadas) + ' h</div>' +
-      (p._error ? '<div class="msg-error">' + ic('alert') + esc(p._error) + '</div>' : '') + '</div>' + chip(p) + '</div></a>';
+    var codEq = eq.CodigoInterno || p.EquipoID || '';
+    var linea2 = rol() === 'OPERADOR' ? (eq.Familia || '') : nombreOp(p.OperadorID);
+    var f = String(p.FechaTrabajo || '');
+    var mes = MESES_CORTOS[Number(f.substring(5, 7)) - 1] || '';
+    var noche = p.Turno === 'NOCHE';
+    var horas = R.num(p.HorasTrabajadas) !== null ? n1(p.HorasTrabajadas) + ' h' : (R.num(p.KmRecorridos) !== null ? n1(p.KmRecorridos) + ' km' : '');
+    return '<a class="tarjeta tocable" href="#/parte/' + p.ParteID + '" style="text-decoration:none;color:inherit;display:block;padding:12px 14px">' +
+      '<div class="parte-fila"><div class="fecha-caja' + (noche ? ' noche' : '') + '" aria-label="' + fF(f) + ' turno ' + esc(p.Turno) + '"><b>' + mes + '</b><span>' + (f.substring(8, 10) || '–') + '</span></div>' +
+      '<div class="crece"><h3>' + esc(codEq) + '</h3><div class="mini">' + esc(linea2) + ' · ' + (noche ? 'Noche' : 'Día') + '</div>' +
+      (p._error ? '<div class="msg-error">' + ic('alert') + esc(p._error) + '</div>' : '') + '</div>' +
+      '<div class="der">' + (horas ? '<span class="horas">' + horas + '</span>' : '') + chip(p) + '</div></div></a>';
   }
+  var MESES_CORTOS = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SET', 'OCT', 'NOV', 'DIC'];
 
   function vMisPartes() {
     // los anulados ya no se muestran al operador (el administrador los anuló: no cuentan)
@@ -1416,9 +1432,10 @@
     });
     var grupos = {};
     l.forEach(function (p) { (grupos[p.ObraID] = grupos[p.ObraID] || []).push(p); });
-    marco(rol() === 'ADMIN' ? 'Revisión (administrador)' : 'Revisar partes',
+    marco('Revisar',
+      accesos([['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/utilizacion', 'activity', 'Utilización'], ['#/fallas', 'alert', 'Fallas'], ['#/plan', 'wrench', 'Plan mantto']]) +
       barraBusq('revisar', 'Buscar equipo, operador, fecha o código…') +
-      '<div class="segmento" role="group" aria-label="Filtro">' + filtros.map(function (x) {
+      '<div class="segmento envuelve" role="group" aria-label="Filtro">' + filtros.map(function (x) {
         return '<button type="button" data-a="filtro" data-v="' + x[0] + '" aria-pressed="' + (x[0] === f[0]) + '">' + x[1] + ' (' + N.filas('PARTES_DIARIOS', function (p) { return x[2](p) && pasa(p); }).length + ')</button>';
       }).join('') + '</div>' +
       (buscando ? '<p class="mini">' + l.length + ' resultado(s) en "' + esc(f[1]) + '". Para buscar en todos los partes elija "Todos".</p>' : '') +
@@ -1605,7 +1622,7 @@
   function equiposDesmovilizados() { return (cat().EQUIPOS || []).filter(function (e) { return equiposObra().indexOf(e) < 0; }); }
   function pestanasMantto(act) {
     if (rol() === 'OPERADOR') return '';
-    return '<div class="segmento" role="group" aria-label="Mantenimiento">' + [['mantto', 'Indicadores'], ['utilizacion', 'Utilización'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto']].map(function (x) {
+    return '<div class="segmento pestanas" role="group" aria-label="Mantenimiento">' + [['mantto', 'Indicadores'], ['utilizacion', 'Utilización'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto']].map(function (x) {
       return '<button type="button" data-a="ir" data-h="#/' + x[0] + '" aria-pressed="' + (x[0] === act) + '">' + x[1] + '</button>';
     }).join('') + '</div>';
   }
@@ -1763,7 +1780,7 @@
     return '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:12px;border-radius:6px;background:var(--sup-2);overflow:hidden">' +
       '<i style="display:block;height:100%;width:' + Math.max(0, Math.min(100, pct)).toFixed(1) + '%;background:' + color + '"></i></div><span class="mini num" style="min-width:52px;text-align:right">' + txt + '</span></div>';
   }
-  function colorDM(x) { return x >= 0.9 ? 'var(--ok)' : x >= 0.8 ? 'var(--acento)' : 'var(--peligro)'; }
+  function colorDM(x) { return x >= 0.9 ? 'var(--ok)' : x >= 0.8 ? 'var(--aviso)' : 'var(--peligro)'; }
   function pct1(x) { return (Math.round(x * 1000) / 10).toFixed(1) + '%'; }
 
   function vMantto() {
@@ -1779,7 +1796,7 @@
     var cuenta = function (s) { return est.filter(function (x) { return x.estado === s; }).length; };
     var venc = cuenta('VENCIDO'), porV = cuenta('POR VENCER'), okM = cuenta('OK'), sinM = eqs.length - venc - porV - okM;
     var totM = Math.max(1, eqs.length);
-    var dona = 'conic-gradient(var(--peligro) 0 ' + (venc / totM * 360) + 'deg, var(--acento) 0 ' + ((venc + porV) / totM * 360) + 'deg, var(--ok) 0 ' + ((venc + porV + okM) / totM * 360) + 'deg, var(--sup-2) 0 360deg)';
+    var dona = 'conic-gradient(var(--peligro) 0 ' + (venc / totM * 360) + 'deg, var(--aviso) 0 ' + ((venc + porV) / totM * 360) + 'deg, var(--ok) 0 ' + ((venc + porV + okM) / totM * 360) + 'deg, var(--sup-2) 0 360deg)';
     // sistemas con más horas inoperativas
     var sis = {};
     ind.forEach(function (i) { Object.keys(i.porSistema).forEach(function (k) { sis[k] = (sis[k] || 0) + i.porSistema[k]; }); });
@@ -1816,7 +1833,7 @@
       }).join('') : '<p class="mini">Sin horas inoperativas en el periodo.</p>') + '</div>' +
       '<div class="tarjeta" style="display:grid;gap:10px"><h3>Mantenimientos preventivos</h3><div style="display:flex;gap:16px;align-items:center">' +
       '<div style="width:110px;height:110px;border-radius:50%;background:' + dona + ';display:grid;place-items:center;flex:none"><div style="width:70px;height:70px;border-radius:50%;background:var(--sup-1);display:grid;place-items:center" class="num"><strong>' + eqs.length + '</strong></div></div>' +
-      '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--acento)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
+      '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--aviso)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
       '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin lectura: <strong>' + sinM + '</strong></div></div></div>' +
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
       '<div class="tarjeta" style="display:grid;gap:8px"><h3>Disponibilidad por equipo</h3>' + ind.slice().sort(function (a, b) { return a.dm - b.dm; }).map(function (i) {
@@ -1832,9 +1849,9 @@
   /** Clasificación de rendimiento de un equipo en el periodo. */
   var CLASE_UTIL = {
     ALTA: { t: 'Alto rendimiento', c: 'var(--ok)' },
-    NORMAL: { t: 'Aceptable', c: 'var(--acento)' },
+    NORMAL: { t: 'Aceptable', c: 'var(--aviso)' },
     BAJA: { t: 'Bajo uso', c: 'var(--peligro)' },
-    FALLAS: { t: 'Bajo por fallas', c: '#FFD60A' },
+    FALLAS: { t: 'Bajo por fallas', c: 'var(--duda)' },
     SINDATO: { t: 'Sin partes', c: 'var(--texto-3)' }
   };
   function claseUtil(i) {
@@ -1862,7 +1879,7 @@
     var HP = suma(hor, 'hp'), HT = Math.min(suma(hor, 'ht'), HP || Infinity), HI = suma(hor, 'hi'), HO = Math.max(0, HP - HT - HI), HPROD = suma(hor, 'hprod');
     var U = HP ? HT / HP : 0, UE = HP - HI > 0 ? HT / (HP - HI) : 0;
     var cuenta = function (c) { return ind.filter(function (i) { return i.clase === c; }).length; };
-    var colorU = function (u) { return u >= 0.85 ? 'var(--ok)' : u >= 0.6 ? 'var(--acento)' : 'var(--peligro)'; };
+    var colorU = function (u) { return u >= 0.85 ? 'var(--ok)' : u >= 0.6 ? 'var(--aviso)' : 'var(--peligro)'; };
     var kpi = function (v, l, cls, sub) { return '<div class="kpi"><div class="v num ' + (cls || '') + '">' + v + '</div><div class="l">' + l + '</div>' + (sub ? '<div class="mini kpi-sub">' + sub + '</div>' : '') + '</div>'; };
 
     // por línea y por familia
@@ -1893,7 +1910,7 @@
     });
     var sinParte = ind.filter(function (i) { return i.clase === 'SINDATO' && i.diasObra >= 3; });
     if (sinParte.length) dec.push({ tipo: 'sin', txt: sinParte.length + ' equipo(s) sin ningún parte en ' + (rg.desde === rg.hasta ? 'el día' : 'el periodo') + ': ' + sinParte.slice(0, 8).map(function (i) { return '<strong>' + esc(i.eq.CodigoInterno) + '</strong>'; }).join(', ') + (sinParte.length > 8 ? '…' : '') + '. Confirmar si está parado (stand-by) o si el operador no reporta.' });
-    var DEC = { des: ['Evaluar desmovilizar', 'var(--peligro)'], mov: ['Evaluar movilizar', 'var(--ok)'], mtto: ['Revisar mantenimiento', '#FFD60A'], sin: ['Sin reporte', 'var(--texto-3)'] };
+    var DEC = { des: ['Evaluar desmovilizar', 'var(--peligro)'], mov: ['Evaluar movilizar', 'var(--ok)'], mtto: ['Revisar mantenimiento', 'var(--duda)'], sin: ['Sin reporte', 'var(--texto-3)'] };
 
     // tendencia diaria
     var dias = [];
@@ -1962,7 +1979,7 @@
       '<p class="mini">Cálculo: horas programadas = 10 h por turno de lunes a sábado y 5 h el domingo, solo los días que el equipo estuvo en obra (el turno noche cuenta cuando hubo parte de noche). ' +
       'Utilización = horas de horómetro / horas programadas. Horas ociosas = programadas − trabajadas − en falla. Para los equipos que solo tienen kilometraje, la utilización es días con parte / días en obra. ' +
       'Los equipos sin ningún parte en el periodo no entran en los totales; se muestran en "Sin reporte". Sugerencias: menos de 60 % = bajo uso; 85 % o más = alto rendimiento; "desmovilizar" se sugiere cuando un tipo de equipo con 2 o más unidades trabaja menos del 50 %.</p>';
-    marco('Utilización de equipos', h);
+    marco('Utilización', h);
   }
 
   /** Registrar el último mantenimiento preventivo de un equipo (actualiza el plan en el servidor). */
