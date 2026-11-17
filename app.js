@@ -2077,7 +2077,16 @@
     var totM = Math.max(1, eqs.length);
     var dona = 'conic-gradient(var(--peligro) 0 ' + (venc / totM * 360) + 'deg, var(--aviso) 0 ' + ((venc + porV) / totM * 360) + 'deg, var(--ok) 0 ' + ((venc + porV + okM) / totM * 360) + 'deg, var(--sup-2) 0 360deg)';
     var peores = ind.filter(function (i) { return i.hp > 0; }).sort(function (a, b) { return a.dm - b.dm; }).slice(0, 8);
-    var h = pestanasMantto('mantto') + filtroPeriodo(rg) + filtroLinea() +
+    // flota en obra (hoy), para no contar uno por uno
+    var opsAct = (adm().operadores.length ? adm().operadores : (cat().OPERADORES || [])).filter(function (o) {
+      return (o.Estado || 'ACTIVO') === 'ACTIVO' && (obraTablero === 'TODAS' || !o.ObraID || o.ObraID === obraTablero);
+    }).length;
+    var flota = '<a class="tarjeta" href="' + (rol() === 'ADMIN' ? '#/admin/equipos' : '#/equipos') + '" style="text-decoration:none;color:inherit;display:grid;gap:10px">' +
+      '<div class="entre"><h3>Flota en obra (hoy)</h3>' + ic('right') + '</div><div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
+      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + eqs.length + '</div><div class="l">Equipos en obra</div></div>' +
+      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + opsAct + '</div><div class="l">Operadores activos</div></div>' +
+      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + equiposDesmovilizados().length + '</div><div class="l">Desmovilizados</div></div></div></a>';
+    var h = pestanasMantto('mantto') + filtroPeriodo(rg) + flota + filtroLinea() +
       '<div class="kpis">' +
       kpiTend(t.dm === null ? '—' : pct1(t.dm), 'Disponibilidad mecánica', t.dm, ta.dm, true) +
       kpiTend(t.u === null ? '—' : pct1(t.u), 'Utilización', t.u, ta.u, true) +
@@ -2422,15 +2431,33 @@
   function vAdmin(tab) {
     var obras = obrasTodas();
     var porObra = function (id) { return obraAdmin === 'TODAS' || id === obraAdmin; };
-    var segEstado = '<div class="segmento" role="group" aria-label="Estado">' + [['ACTIVOS', 'Activos'], ['BAJA', 'De baja'], ['TODOS', 'Todos']].map(function (x) {
-      return '<button type="button" data-a="filtroAdmin" data-v="' + x[0] + '" aria-pressed="' + (x[0] === filtroAdmin) + '">' + x[1] + '</button>';
-    }).join('') + '</div>';
+    // botones Activos / De baja / Todos con su cantidad
+    var segEstado = function (nAct, nBaja) {
+      return '<div class="segmento" role="group" aria-label="Estado">' + [['ACTIVOS', 'Activos', nAct], ['BAJA', 'De baja', nBaja], ['TODOS', 'Todos', nAct + nBaja]].map(function (x) {
+        return '<button type="button" data-a="filtroAdmin" data-v="' + x[0] + '" aria-pressed="' + (x[0] === filtroAdmin) + '">' + x[1] + ' (' + x[2] + ')</button>';
+      }).join('') + '</div>';
+    };
+    var kpiA = function (v, l, cls) { return '<div class="kpi"><div class="v num ' + (cls || '') + '">' + v + '</div><div class="l">' + l + '</div></div>'; };
+    var mostrando = function (clave, n, total) { return String(busq[clave] || '').trim() ? '<p class="mini" style="margin:0">' + n + ' resultado(s) de ' + total + '.</p>' : ''; };
     var pasaEstado = function (activo) { return filtroAdmin === 'TODOS' || (filtroAdmin === 'ACTIVOS') === !!activo; };
     var h = pestanasAdmin(tab);
     if (tab === 'operadores') {
-      var ops = adm().operadores.filter(function (o) { return porObra(o.ObraID) && pasaEstado(o.Estado === 'ACTIVO') && coincide('admOp', [o.Nombre, o.DNI, o.Telefono, o.Especialidad].join(' ')); })
+      var base = adm().operadores.filter(function (o) { return porObra(o.ObraID); });
+      var act = base.filter(function (o) { return o.Estado === 'ACTIVO'; });
+      var conEq = act.filter(function (o) { return o.Autorizaciones > 0; }).length;
+      var porTipo = {};
+      act.forEach(function (o) { var t = o.Especialidad || 'SIN TIPO'; porTipo[t] = (porTipo[t] || 0) + 1; });
+      var enEstado = base.filter(function (o) { return pasaEstado(o.Estado === 'ACTIVO'); });
+      var ops = enEstado.filter(function (o) { return coincide('admOp', [o.Nombre, o.DNI, o.Telefono, o.Especialidad].join(' ')); })
         .sort(function (a, b) { return String(a.Nombre).localeCompare(String(b.Nombre)); });
-      h += filtroObras('obraAdmin', obraAdmin) + segEstado + barraBusq('admOp', 'Buscar nombre, DNI o celular…') +
+      h += filtroObras('obraAdmin', obraAdmin) +
+        '<div class="kpis">' + kpiA(act.length, 'Operadores activos', 'acento') + kpiA(base.length - act.length, 'De baja') +
+        kpiA(conEq, 'Con equipo autorizado') + kpiA(act.length - conEq, 'Sin equipo autorizado', act.length - conEq ? 'acento' : '') + '</div>' +
+        '<details class="tarjeta"><summary class="entre" style="cursor:pointer;list-style:none"><h3>Operadores activos por tipo de equipo</h3>' + ic('right') + '</summary><div style="display:grid;gap:6px;margin-top:10px">' +
+        Object.keys(porTipo).sort(function (a, b) { return porTipo[b] - porTipo[a]; }).map(function (t) {
+          return '<div class="entre mini"><span>' + esc(t.charAt(0) + t.slice(1).toLowerCase()) + '</span><strong style="color:var(--texto)">' + porTipo[t] + '</strong></div>';
+        }).join('') + '</div></details>' +
+        segEstado(act.length, base.length - act.length) + barraBusq('admOp', 'Buscar nombre, DNI o celular…') + mostrando('admOp', ops.length, enEstado.length) +
         '<button type="button" class="btn primario ancho" data-a="admNuevoOp">' + ic('plus') + 'Agregar operador</button>' +
         '<div class="lista">' + (ops.length ? ops.map(function (o) {
           return '<a class="tarjeta tocable" href="#/admin/operador/' + o.OperadorID + '" style="text-decoration:none;color:inherit;display:block;padding:12px 14px"><div class="parte-fila">' +
@@ -2439,11 +2466,27 @@
             '<span class="mini">' + Math.round(o.Autorizaciones / 2 * 10) / 10 + ' equipo(s)</span></div></div></a>';
         }).join('') : '<div class="vacio"><p>No hay operadores con ese filtro.</p></div>') + '</div>';
     } else if (tab === 'equipos') {
-      var eqs = (cat().EQUIPOS || []).filter(function (e) { return porObra(obraDeEq(e)) && pasaEstado(e.Estado !== 'BAJA') && coincide('admEq', [e.CodigoInterno, e.Familia, e.Marca, e.Modelo, e.PlacaSerie].join(' ')); })
+      var baseE = (cat().EQUIPOS || []).filter(function (e) { return porObra(obraDeEq(e)); });
+      var actE = baseE.filter(function (e) { return e.Estado !== 'BAJA'; });
+      var porL = {}, porFam = {};
+      actE.forEach(function (e) { var l = lineaDe(e); porL[l] = (porL[l] || 0) + 1; porFam[e.Familia] = (porFam[e.Familia] || 0) + 1; });
+      var enEstadoE = baseE.filter(function (e) { return pasaEstado(e.Estado !== 'BAJA'); });
+      var eqs = enEstadoE.filter(function (e) { return coincide('admEq', [e.CodigoInterno, e.Familia, e.Marca, e.Modelo, e.PlacaSerie].join(' ')); })
         .sort(function (a, b) { return String(a.CodigoInterno).localeCompare(String(b.CodigoInterno), 'es', { numeric: true }); });
       var opsPorEq = {};
       (cat().ASIGNACIONES || []).forEach(function (a) { if (a.Estado === 'ACTIVO') (opsPorEq[a.EquipoID] = opsPorEq[a.EquipoID] || {})[a.OperadorID] = 1; });
-      h += filtroObras('obraAdmin', obraAdmin) + segEstado + barraBusq('admEq', 'Buscar código, tipo, marca o placa…') +
+      // torres de iluminación y grupos (línea "Otros") no siempre tienen operador propio: no se avisan
+      var sinOp = actE.filter(function (e) { return lineaDe(e) !== 'OTROS' && !Object.keys(opsPorEq[e.EquipoID] || {}).length; }).length;
+      h += filtroObras('obraAdmin', obraAdmin) +
+        '<div class="kpis">' + kpiA(actE.length, 'Equipos activos', 'acento') + kpiA(baseE.length - actE.length, 'De baja') +
+        kpiA(porL['LINEA AMARILLA'] || 0, 'Línea amarilla') + kpiA(porL['LINEA BLANCA'] || 0, 'Línea blanca') +
+        kpiA(porL['TRANSPORTE DE PERSONAL'] || 0, 'Transporte de personal') + kpiA(porL.OTROS || 0, 'Otros (torres, grupos)') + '</div>' +
+        (sinOp ? '<div class="aviso acento">' + ic('alert') + '<div><strong>' + sinOp + ' equipo(s) activo(s) sin operador autorizado.</strong><div class="sub">Nadie puede hacer su parte: autorícelo en la ficha de un operador.</div></div></div>' : '') +
+        '<details class="tarjeta"><summary class="entre" style="cursor:pointer;list-style:none"><h3>Equipos activos por tipo</h3>' + ic('right') + '</summary><div style="display:grid;gap:6px;margin-top:10px">' +
+        Object.keys(porFam).sort(function (a, b) { return porFam[b] - porFam[a]; }).map(function (t) {
+          return '<div class="entre mini"><span>' + esc(t.charAt(0) + t.slice(1).toLowerCase()) + '</span><strong style="color:var(--texto)">' + porFam[t] + '</strong></div>';
+        }).join('') + '</div></details>' +
+        segEstado(actE.length, baseE.length - actE.length) + barraBusq('admEq', 'Buscar código, tipo, marca o placa…') + mostrando('admEq', eqs.length, enEstadoE.length) +
         '<button type="button" class="btn primario ancho" data-a="admNuevoEq">' + ic('plus') + 'Agregar equipo</button>' +
         '<div class="lista">' + (eqs.length ? eqs.map(function (e) {
           var nOps = Object.keys(opsPorEq[e.EquipoID] || {}).length;
@@ -2453,9 +2496,11 @@
             '<span class="mini">' + nOps + ' operador(es)</span></div></div></button>';
         }).join('') : '<div class="vacio"><p>No hay equipos con ese filtro.</p></div>') + '</div>';
     } else if (tab === 'supervisores') {
-      var sups = adm().supervisores.filter(function (s) { return pasaEstado(s.Estado === 'ACTIVO') && (obraAdmin === 'TODAS' || s.Obras.indexOf(obraAdmin) >= 0); })
+      var baseS = adm().supervisores.filter(function (s) { return obraAdmin === 'TODAS' || s.Obras.indexOf(obraAdmin) >= 0; });
+      var actS = baseS.filter(function (s) { return s.Estado === 'ACTIVO'; }).length;
+      var sups = baseS.filter(function (s) { return pasaEstado(s.Estado === 'ACTIVO'); })
         .sort(function (a, b) { return String(a.Nombre).localeCompare(String(b.Nombre)); });
-      h += filtroObras('obraAdmin', obraAdmin) + segEstado +
+      h += filtroObras('obraAdmin', obraAdmin) + segEstado(actS, baseS.length - actS) +
         '<button type="button" class="btn primario ancho" data-a="admSup">' + ic('plus') + 'Agregar supervisor</button>' +
         '<p class="mini">Los supervisores entran con su <strong>correo</strong> y la contraseña <strong>ICONSER</strong>. Solo ven, revisan y aprueban los partes de sus obras.</p>' +
         '<div class="lista">' + (sups.length ? sups.map(function (s) {
