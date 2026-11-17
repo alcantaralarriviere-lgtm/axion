@@ -1658,6 +1658,8 @@
       campo('Componente (opcional)', '<input name="Componente" value="' + esc(f.Componente || '') + '">') +
       campo('Causa y hallazgo', '<textarea name="CausaHallazgo">' + esc(f.CausaHallazgo || f.Descripcion || '') + '</textarea>', true) +
       campo('Repuesto pendiente', '<input name="RepuestoPendiente" value="' + esc(f.RepuestoPendiente || '') + '" placeholder="Ej.: filtro hidráulico (vacío si no hay)">') +
+      '<div class="dos">' + campo('OT N°', '<input name="OT" value="' + esc(f.OT || '') + '">') +
+      campo('Espera logística (h)', '<input name="EsperaLogisticaH" type="number" inputmode="decimal" step="0.5" min="0" value="' + esc(f.EsperaLogisticaH || '') + '">') + '</div>' +
       campo('Fecha de cierre', '<input name="FechaCierre" type="date" value="' + esc(f.FechaCierre || '') + '" max="' + hoy() + '">'),
       function (v) {
         if (!id && !v.EquipoID) return 'Elija el equipo.';
@@ -1672,7 +1674,7 @@
         var fc = v.FechaCierre || (v.Estado === 'CERRADA' ? finISO.substring(0, 10) : '');
         var fila = { FallaID: id || N.nuevoID('FAL'), SistemaID: v.SistemaID, FechaHoraInicio: iniISO, FechaHoraFin: finISO, Estado: v.Estado,
           Mecanico: v.Mecanico, TipoIntervencion: v.TipoIntervencion, FallaFuncional: v.FallaFuncional, CausaHallazgo: v.CausaHallazgo,
-          RepuestoPendiente: v.RepuestoPendiente, FechaCierre: fc, Componente: v.Componente || (id ? f.Componente : ''), Descripcion: id ? f.Descripcion : (v.CausaHallazgo || '') };
+          RepuestoPendiente: v.RepuestoPendiente, FechaCierre: fc, OT: v.OT || '', EsperaLogisticaH: Number(v.EsperaLogisticaH) || 0, Componente: v.Componente || (id ? f.Componente : ''), Descripcion: id ? f.Descripcion : (v.CausaHallazgo || '') };
         if (!id) { fila.EquipoID = v.EquipoID; fila.ParteID = ''; fila.CodigoFalla = 'FA-' + equipo(v.EquipoID).CodigoInterno + '-' + v.Fecha.replace(/-/g, '') + '-' + v.HoraIni.replace(':', ''); }
         N.guardar('FALLAS', fila);
         toast(id ? 'Falla actualizada' : 'Falla registrada');
@@ -1761,6 +1763,25 @@
     _hist = { src: h, porEq: porEq, inicioApp: ini || hoy() };
     return _hist;
   }
+  /**
+   * Fallas (de un mismo equipo, ordenadas por inicio) que continúan la avería anterior: misma causa, empiezan a más tardar
+   * 15 h después del fin de la anterior y en otro día (o la anterior cruzó la medianoche). Devuelve { FallaID: true }.
+   * Ej.: el monoblock anotado cada día del 05 al 14/11 es UNA falla para MTTR y MTBF; dos paradas distintas el mismo día son dos.
+   */
+  function continuaFalla(lista) {
+    var norm = function (s) { return String(s || '').toUpperCase().replace(/MAGUERA|MANGERA/g, 'MANGUERA').replace(/\(SIN HORA DE FIN[^)]*\)/, '').replace(/[^A-Z]/g, ''); };
+    var out = {}, prev = null;
+    lista.forEach(function (f) {
+      var a = Date.parse(f.FechaHoraInicio), b = f.FechaHoraFin ? Date.parse(f.FechaHoraFin) : Date.now();
+      if (prev) {
+        var pa = Date.parse(prev.FechaHoraInicio), pb = prev.FechaHoraFin ? Date.parse(prev.FechaHoraFin) : Date.now();
+        var diaP = R.enLima(pa).fecha, finP = R.enLima(pb).fecha, diaF = R.enLima(a).fecha;
+        if (norm(f.CausaHallazgo || f.Descripcion) === norm(prev.CausaHallazgo || prev.Descripcion) && a >= pb && a - pb <= 15 * 3600000 && (diaF > finP || diaP < finP)) out[f.FallaID] = true;
+      }
+      prev = f;
+    });
+    return out;
+  }
   /** Indicadores por equipo. Por defecto solo línea amarilla y blanca con horómetro; todos = true incluye todos los equipos. */
   function indicadoresMantto(rg, todos) {
     var dias = [];
@@ -1812,14 +1833,18 @@
         hp += hpDia[x];
       });
       var paraDia = {}, nFallas = 0, porSistema = {}, fallasDia = {};
-      fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; }).forEach(function (f) {
+      var mias = fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; })
+        .sort(function (a, b) { return String(a.FechaHoraInicio).localeCompare(String(b.FechaHoraInicio)); });
+      var sigue = continuaFalla(mias);
+      mias.forEach(function (f) {
         var a = Date.parse(f.FechaHoraInicio), b = f.FechaHoraFin ? Date.parse(f.FechaHoraFin) : ahoraMs;
         if (isNaN(a) || b <= a) return;
         var iniF = R.enLima(a).fecha;
         var sis = busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre || 'OTROS';
         // antes del inicio de la app, los días del Excel traen sus propias paradas: no se suman las de FALLAS
         var soloExcel = function (x) { return deExcel[x] && x < H.inicioApp; };
-        if (iniF >= rg.desde && iniF <= rg.hasta && !soloExcel(iniF) && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) { nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1; }
+        // una parada que continúa la misma avería del turno o día anterior no es una falla nueva (sí suman sus horas)
+        if (iniF >= rg.desde && iniF <= rg.hasta && !soloExcel(iniF) && !sigue[f.FallaID] && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) { nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1; }
         dias.forEach(function (x) {
           if (soloExcel(x)) return;
           var d0 = Date.parse(x + 'T00:00:00-05:00'), d1 = d0 + 86400000;
@@ -2226,6 +2251,11 @@
       var ahoraMs = Date.now();
       var fallasEq = {};
       N.filas('FALLAS', function (f) { return f.FallaFuncional !== 'NO'; }).forEach(function (f) { (fallasEq[f.EquipoID] = fallasEq[f.EquipoID] || []).push(f); });
+      var sigueAll = {};
+      Object.keys(fallasEq).forEach(function (k) {
+        fallasEq[k].sort(function (a, b) { return String(a.FechaHoraInicio).localeCompare(String(b.FechaHoraInicio)); });
+        Object.assign(sigueAll, continuaFalla(fallasEq[k]));
+      });
       // horas paradas y fallas dentro de la ventana de cada turno (no se mezclan día y noche)
       var enTurno = function (eqId, fecha, tu, hp) {
         var t = turno(tu), ini = Date.parse(fecha + 'T' + (t.HoraInicio || (tu === 'NOCHE' ? '17:30' : '07:00')) + ':00-05:00');
@@ -2235,7 +2265,7 @@
           if (isNaN(a) || b <= a) return;
           var h = Math.max(0, Math.min(b, fin) - Math.max(a, ini)) / 3600000;
           if (h > 0) { horas += h; var s = busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre; if (s && sis.indexOf(s) < 0) sis.push(s); }
-          if (a >= ini && a < fin && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) n++;
+          if (a >= ini && a < fin && !sigueAll[f.FallaID] && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) n++;
         });
         return { horas: Math.min(horas, hp), n: n, sis: sis };
       };
@@ -2297,11 +2327,20 @@
       var histM = (cat().MANTENIMIENTOS_HIST || []).map(function (x) {
         return { 'Código': equipo(x.EquipoID).CodigoInterno || x.EquipoID, 'Fecha': x.Fecha ? fF(x.Fecha) : '', 'Lectura': x.Lectura, 'UM': x.UM, 'Servicio': x.Servicio || '', 'Fuente': x.Fuente };
       });
-      var fallas = N.filas('FALLAS', function (f) { var d = String(f.FechaHoraInicio).substring(0, 10); return d >= rg.desde && d <= rg.hasta; }).map(function (f) {
-        return { 'Código': equipo(f.EquipoID).CodigoInterno || f.EquipoID, 'Inicio': fFH(f.FechaHoraInicio), 'Fin': f.FechaHoraFin ? fFH(f.FechaHoraFin) : '',
-          'Sistema': busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre || '', 'Tipo': f.TipoIntervencion || '', 'Falla funcional': f.FallaFuncional || '',
-          'Causa y hallazgo': f.CausaHallazgo || f.Descripcion || '', 'Mecánico': f.Mecanico || '', 'Repuesto pendiente': f.RepuestoPendiente || '', 'Estado': f.Estado };
-      });
+      // hoja "Paradas" con el mismo formato del Reporte de paradas (una fila por parada)
+      var TIPO_TXT = { CORRECTIVO: 'Correctivo inmediato', DIFERIDO: 'Correctivo diferido', PREVENTIVO: 'Preventivo (PM)', INSPECCION: 'Inspección', CONDICION: 'Inspección o condición' };
+      var EST_TXT = { ABIERTA: 'Abierta', EN_REPARACION: 'En reparación', POR_CONFIRMAR: 'Por confirmar', CERRADA: 'Cerrada' };
+      var fallas = N.filas('FALLAS', function (f) { var d = R.enLima(Date.parse(f.FechaHoraInicio)).fecha; return d >= rg.desde && d <= rg.hasta; })
+        .sort(function (a, b) { return String(a.FechaHoraInicio).localeCompare(String(b.FechaHoraInicio)); }).map(function (f) {
+          var e = equipo(f.EquipoID), i = R.enLima(Date.parse(f.FechaHoraInicio)), fi = f.FechaHoraFin ? R.enLima(Date.parse(f.FechaHoraFin)) : null;
+          return { 'ID': f.CodigoFalla || f.FallaID, 'Fecha': fF(i.fecha), 'Equipo': e.CodigoInterno || f.EquipoID, 'Hora inicio': i.hora, 'Hora fin': fi ? fi.hora : '',
+            'Sistema': busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre || '', 'Mecánico': f.Mecanico || f.Responsable || '',
+            'Tipo de intervención': TIPO_TXT[f.TipoIntervencion] || f.TipoIntervencion || '', 'Falla funcional': f.FallaFuncional || 'SI',
+            'Causa y hallazgo': f.CausaHallazgo || f.Descripcion || '', 'OT N°': f.OT || '', 'Repuesto pendiente': f.RepuestoPendiente || 'NO',
+            'Espera logística h': Number(f.EsperaLogisticaH) || 0, 'Estado': EST_TXT[f.Estado] || f.Estado || '', 'Fecha de cierre': f.FechaCierre ? fF(f.FechaCierre) : '',
+            'Familia': e.Familia || '', 'Horas de parada': fi ? r1((Date.parse(f.FechaHoraFin) - Date.parse(f.FechaHoraInicio)) / 3600000) : '',
+            'Cuenta como falla': sigueAll[f.FallaID] ? 'No (continúa la anterior)' : 'Sí' };
+        });
       var wb = X.utils.book_new();
       var hoja = function (nombre, filas, anchos) {
         var ws = X.utils.json_to_sheet(filas.length ? filas : [{ 'Sin datos': '' }]);
@@ -2313,7 +2352,7 @@
       hoja(c.modo === 'mes' ? 'Mensual' : c.modo === 'dia' ? 'Por día' : 'Semanal', semanal, [10, 14, 12, 14, 8, 8, 12, 9, 9]);
       hoja('Mantenimiento', mtto, [14, 22, 6, 12, 12, 12, 12, 14, 12, 10, 12]);
       hoja('Historial mtto', histM, [14, 12, 10, 6, 10, 8]);
-      hoja('Fallas', fallas, [14, 16, 16, 20, 14, 10, 50, 16, 20, 10]);
+      hoja('Paradas', fallas, [12, 11, 13, 9, 9, 16, 12, 20, 9, 45, 10, 12, 10, 10, 11, 22, 10, 22]);
       X.writeFile(wb, 'AXION_Equipos_' + rg.desde + '_a_' + rg.hasta + '.xlsx');
       toast('Excel descargado');
     }, function (err) { toast(err.message); });
