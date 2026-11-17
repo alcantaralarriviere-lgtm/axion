@@ -1785,7 +1785,8 @@
       if (prev) {
         var pa = Date.parse(prev.FechaHoraInicio), pb = prev.FechaHoraFin ? Date.parse(prev.FechaHoraFin) : Date.now();
         var diaP = R.enLima(pa).fecha, finP = R.enLima(pb).fecha, diaF = R.enLima(a).fecha;
-        if (norm(f.CausaHallazgo || f.Descripcion) === norm(prev.CausaHallazgo || prev.Descripcion) && a >= pb && a - pb <= 15 * 3600000 && (diaF > finP || diaP < finP)) out[f.FallaID] = true;
+        // el valor es la primera parada de la avería (sirve para contarla una vez en cualquier periodo)
+        if (norm(f.CausaHallazgo || f.Descripcion) === norm(prev.CausaHallazgo || prev.Descripcion) && a >= pb && a - pb <= 15 * 3600000 && (diaF > finP || diaP < finP)) out[f.FallaID] = out[prev.FallaID] || prev.FallaID;
       }
       prev = f;
     });
@@ -1844,7 +1845,7 @@
       var paraDia = {}, nFallas = 0, porSistema = {}, fallasDia = {};
       var mias = fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; })
         .sort(function (a, b) { return String(a.FechaHoraInicio).localeCompare(String(b.FechaHoraInicio)); });
-      var sigue = continuaFalla(mias);
+      var sigue = continuaFalla(mias), contadas = {};
       mias.forEach(function (f) {
         var a = Date.parse(f.FechaHoraInicio), b = f.FechaHoraFin ? Date.parse(f.FechaHoraFin) : ahoraMs;
         if (isNaN(a) || b <= a) return;
@@ -1852,8 +1853,12 @@
         var sis = busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre || 'OTROS';
         // antes del inicio de la app, los días del Excel traen sus propias paradas: no se suman las de FALLAS
         var soloExcel = function (x) { return deExcel[x] && x < H.inicioApp; };
-        // una parada que continúa la misma avería del turno o día anterior no es una falla nueva (sí suman sus horas)
-        if (iniF >= rg.desde && iniF <= rg.hasta && !soloExcel(iniF) && !sigue[f.FallaID] && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) { nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1; }
+        // una avería cuenta UNA vez en el periodo aunque esté anotada varios días, y aunque haya empezado antes del periodo
+        // (p. ej. monoblock del 05 al 14/11 visto del 07 al 13/11 = 1 falla). Sus horas sí se suman todas.
+        var raiz = sigue[f.FallaID] || f.FallaID;
+        if (iniF >= rg.desde && iniF <= rg.hasta && !soloExcel(iniF) && !contadas[raiz] && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) {
+          contadas[raiz] = 1; nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1;
+        }
         dias.forEach(function (x) {
           if (soloExcel(x)) return;
           var d0 = Date.parse(x + 'T00:00:00-05:00'), d1 = d0 + 86400000;
