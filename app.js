@@ -2187,20 +2187,76 @@
       N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO' && p.FechaTrabajo >= rg.desde && p.FechaTrabajo <= rg.hasta; }).forEach(function (p) {
         (partesPorDia[p.EquipoID + '|' + p.FechaTrabajo] = partesPorDia[p.EquipoID + '|' + p.FechaTrabajo] || []).push(p);
       });
+      // Diario: UNA fila por equipo, día y turno (DÍA o NOCHE). Origen: parte de la app, Excel KPI (antes de la app) o sin parte.
+      var histTurno = {};
+      (S().hist || []).forEach(function (x) {
+        var f = String(x[0]).substring(0, 10);
+        if (f < rg.desde || f > rg.hasta) return;
+        var k = x[1] + '|' + f + '|' + (String(x[2]).toUpperCase().indexOf('N') === 0 ? 'NOCHE' : 'DIA');
+        var h = histTurno[k] = histTurno[k] || { hp: 0, hi: 0, hm: 0, ini: null, fin: null, paradas: 0, sis: [], estado: '' };
+        var hr = Number(x[4]) || 0; if (hr < 0) hr += 24;
+        h.hp = Math.max(h.hp, Number(x[3]) || 0); h.hi += Math.max(0, hr); h.hm += Math.max(0, Number(x[5]) || 0); h.paradas += Math.max(0, Number(x[8]) || 0);
+        if (x[6] !== '' && x[6] !== null && (h.ini === null || Number(x[6]) < h.ini)) h.ini = Number(x[6]);
+        if (x[7] !== '' && x[7] !== null && (h.fin === null || Number(x[7]) > h.fin)) h.fin = Number(x[7]);
+        if (x[9] && h.sis.indexOf(x[9]) < 0) h.sis.push(x[9]);
+        if (x[10]) h.estado = /inop/i.test(x[10]) || !h.estado ? x[10] : h.estado;
+      });
+      var ahoraMs = Date.now();
+      var fallasEq = {};
+      N.filas('FALLAS', function (f) { return f.FallaFuncional !== 'NO'; }).forEach(function (f) { (fallasEq[f.EquipoID] = fallasEq[f.EquipoID] || []).push(f); });
+      // horas paradas y fallas dentro de la ventana de cada turno (no se mezclan día y noche)
+      var enTurno = function (eqId, fecha, tu, hp) {
+        var t = turno(tu), ini = Date.parse(fecha + 'T' + (t.HoraInicio || (tu === 'NOCHE' ? '17:30' : '07:00')) + ':00-05:00');
+        var dur = Number(t.DuracionHoras) || 12, fin = ini + dur * 3600000, horas = 0, n = 0, sis = [];
+        (fallasEq[eqId] || []).forEach(function (f) {
+          var a = Date.parse(f.FechaHoraInicio), b = f.FechaHoraFin ? Date.parse(f.FechaHoraFin) : ahoraMs;
+          if (isNaN(a) || b <= a) return;
+          var h = Math.max(0, Math.min(b, fin) - Math.max(a, ini)) / 3600000;
+          if (h > 0) { horas += h; var s = busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre; if (s && sis.indexOf(s) < 0) sis.push(s); }
+          if (a >= ini && a < fin && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) n++;
+        });
+        return { horas: Math.min(horas, hp), n: n, sis: sis };
+      };
+      var etTurno = function (tu) { return tu === 'NOCHE' ? 'NOCHE' : 'DÍA'; };
       var diario = [];
       ind.forEach(function (i) {
+        var e = i.eq, km = i.soloKm;
         Object.keys(i.hpDia).sort().forEach(function (x) {
-          var hp = i.hpDia[x]; if (!hp) return;
-          var ps = partesPorDia[i.eq.EquipoID + '|' + x] || [];
-          var hi = ps.map(function (p) { return R.num(i.soloKm ? p.OdometroInicial : p.HorometroInicial); }).filter(function (v) { return v !== null; });
-          var hf = ps.map(function (p) { return R.num(i.soloKm ? p.OdometroFinal : p.HorometroFinal); }).filter(function (v) { return v !== null; });
-          var trab = i.htDia[x] || 0, par = i.hiDia[x] || 0;
-          diario.push({ 'Fecha': fF(x), 'Código': i.eq.CodigoInterno, 'Tipo': i.eq.Familia, 'Turnos': ps.map(function (p) { return p.Turno; }).join(' + ') || (i.deExcel[x] ? 'Excel' : ''),
-            'Lectura inicial': hi.length ? Math.min.apply(null, hi) : '', 'Lectura final': hf.length ? Math.max.apply(null, hf) : '',
-            'Horas programadas': r1(hp), 'Horas trabajadas': i.soloKm ? '' : r1(trab), 'Horas paradas': r1(par), 'Fallas': (i.fallasDia || {})[x] || 0,
-            'DM %': pc((hp - par) / hp), 'Utilización %': i.soloKm ? '' : pc(Math.min(1, trab / hp)),
-            'Actividades': ps.map(function (p) { return p.Actividades || ''; }).filter(Boolean).join(' | ') });
+          var hpDia = horasProgDia(x);
+          var ps = (partesPorDia[e.EquipoID + '|' + x] || []).slice().sort(function (a, b) { return a.Turno === 'DIA' ? -1 : b.Turno === 'DIA' ? 1 : 0; });
+          var fila = function (o) {
+            var hp = o.hp, par = Math.max(0, Math.min(o.par, hp)), trab = o.trab;
+            diario.push({ 'Fecha': fF(x), 'Turno': etTurno(o.tu), 'Código': e.CodigoInterno, 'Tipo': e.Familia, 'Operador': o.op || '',
+              'Lectura inicial': o.ini === null || o.ini === undefined ? '' : o.ini, 'Lectura final': o.fin === null || o.fin === undefined ? '' : o.fin,
+              'Horas trabajadas': km ? '' : r1(trab), 'Km recorridos': km ? r1(o.km) : '', 'Horas programadas': r1(hp), 'Horas paradas': r1(par),
+              'Fallas': o.n || 0, 'Sistema': (o.sis || []).join(', '), 'DM %': hp ? pc((hp - par) / hp) : '', 'Utilización %': km || !hp ? '' : pc(Math.min(1, trab / hp)),
+              'Estado': o.estado || '', 'Actividades': o.act || '', 'Origen': o.origen });
+          };
+          if (ps.length) {
+            ps.forEach(function (p) {
+              var ft = enTurno(e.EquipoID, x, p.Turno, hpDia);
+              var ini = R.num(km ? p.OdometroInicial : p.HorometroInicial), fin = R.num(km ? p.OdometroFinal : p.HorometroFinal);
+              fila({ tu: p.Turno, op: nombreOp(p.OperadorID), ini: ini, fin: fin, trab: km ? 0 : horasDeParte(p), km: km ? kmDeParte(p) : 0,
+                hp: hpDia, par: ft.horas, n: ft.n, sis: ft.sis,
+                estado: { BORRADOR: 'Borrador', PENDIENTE_REVISION: 'Por revisar', OBSERVADO: 'Observado', CORREGIDO: 'Corregido', APROBADO: 'Aprobado' }[p.Estado] || p.Estado || '',
+                act: p.Actividades || '', origen: 'App' });
+            });
+            return;
+          }
+          var hayExcel = false;
+          ['DIA', 'NOCHE'].forEach(function (tu) {
+            var h = histTurno[e.EquipoID + '|' + x + '|' + tu];
+            if (!h) return;
+            hayExcel = true;
+            fila({ tu: tu, ini: h.ini, fin: h.fin, trab: km ? 0 : Math.min(h.hm, 24), km: km ? h.hm : 0, hp: h.hp || hpDia, par: h.hi, n: h.paradas, sis: h.sis,
+              estado: h.estado, origen: 'Excel KPI' });
+          });
+          if (!hayExcel && i.hpDia[x]) fila({ tu: 'DIA', hp: hpDia, par: 0, trab: 0, km: 0, estado: 'Sin parte', origen: 'Sin parte' });
         });
+      });
+      diario.sort(function (a, b) {
+        var fa = a['Fecha'].split('/').reverse().join(''), fb = b['Fecha'].split('/').reverse().join('');
+        return fa.localeCompare(fb) || String(a['Código']).localeCompare(String(b['Código']), 'es', { numeric: true }) || (a['Turno'] === 'DÍA' ? -1 : 1);
       });
       var se = serieKPI(indicadoresMantto(rg), rg);
       var c = { modo: se.modo };
@@ -2229,7 +2285,7 @@
         X.utils.book_append_sheet(wb, ws, nombre);
       };
       hoja('Resumen', resumen, [14, 22, 18, 10, 10, 12, 12, 12, 12, 8, 8, 12, 9, 9, 12]);
-      hoja('Diario', diario, [11, 14, 20, 10, 12, 12, 12, 12, 12, 8, 8, 12, 80]);
+      hoja('Diario', diario, [11, 8, 14, 20, 26, 12, 12, 10, 10, 10, 10, 7, 18, 8, 11, 14, 70, 10]);
       hoja(c.modo === 'mes' ? 'Mensual' : c.modo === 'dia' ? 'Por día' : 'Semanal', semanal, [10, 14, 12, 14, 8, 8, 12, 9, 9]);
       hoja('Mantenimiento', mtto, [14, 22, 6, 12, 12, 12, 12, 14, 12, 10, 12]);
       hoja('Historial mtto', histM, [14, 12, 10, 6, 10, 8]);
