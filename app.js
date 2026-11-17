@@ -30,7 +30,10 @@
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>', edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
     gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 14 4-5"/>', activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
-    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>'
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.8"/><path d="M16.5 14.6c2.9.2 5 1.9 5 4.9"/>',
+    building: '<path d="M4 21V5l8-3v19M12 9l8 3v9M2 21h20M8 8h.01M8 12h.01M8 16h.01M16 14h.01M16 18h.01"/>',
+    move: '<path d="M5 12h14M13 6l6 6-6 6"/>'
   };
   function ic(n) { return '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P[n] || '') + '</svg>'; }
   function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -95,7 +98,8 @@
     if (!op.sinNav) {
       var items = rol() === 'OPERADOR'
         ? [['#/inicio', 'home', 'Inicio'], ['#/parte/nuevo', 'plus', 'Nuevo parte'], ['#/partes', 'list', 'Mis partes', obsCount()], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]
-        : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros'], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]];
+        : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros']]
+          .concat(rol() === 'ADMIN' ? [['#/admin', 'users', 'Administrar']] : []).concat([['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]);
       var actual = location.hash.split('/').slice(0, 2).join('/');
       if (['#/fallas', '#/plan', '#/falla', '#/utilizacion', '#/equipos', '#/equipo', '#/reportes'].indexOf(actual) >= 0) actual = '#/mantto';
       nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in"><span class="nav-marca">AXION</span>' + items.map(function (it) {
@@ -1019,6 +1023,7 @@
   // ------------------------------------------------------------ hojas (formularios emergentes)
   var dlg = document.getElementById('dlg');
   function hoja(titulo, campos, alGuardar, textoBoton) {
+    if (dlg.open) dlg.close();  // abrir una hoja desde otra (p. ej. "Trasladar" dentro de la ficha del equipo)
     dlg.innerHTML = '<form class="hoja" method="dialog" novalidate><div class="asa"></div><div class="entre"><h2>' + esc(titulo) + '</h2>' +
       '<button type="button" class="volver" data-cerrar aria-label="Cerrar">' + ic('x') + '</button></div>' + campos +
       '<div class="msg-error" role="alert" id="errHoja" hidden></div><div class="acciones dos-col"><button type="button" class="btn" data-cerrar>Cancelar</button>' +
@@ -1040,6 +1045,7 @@
   }
   function confirmar(titulo, texto, boton, peligro) {
     return new Promise(function (ok) {
+      if (dlg.open) dlg.close();
       dlg.innerHTML = '<div class="hoja"><div class="asa"></div><h2>' + esc(titulo) + '</h2><p class="sub">' + esc(texto) + '</p><div class="acciones dos-col">' +
         '<button class="btn" id="cNo">Cancelar</button><button class="btn ' + (peligro ? 'peligro' : 'primario') + '" id="cSi">' + esc(boton) + '</button></div></div>';
       dlg.showModal();
@@ -1619,7 +1625,12 @@
     for (var k in LINEA_FAM) if (LINEA_FAM[k].indexOf(eq.Familia) >= 0) return k;
     return 'OTROS';
   }
-  function equiposObra() { return (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA' && !(e.FechaSalidaObra && e.FechaSalidaObra <= hoy()); }); }
+  var obraTablero = 'TODAS';
+  function equiposObra() {
+    return (cat().EQUIPOS || []).filter(function (e) {
+      return e.Estado !== 'BAJA' && !(e.FechaSalidaObra && e.FechaSalidaObra <= hoy()) && (obraTablero === 'TODAS' || obraDeEq(e) === obraTablero);
+    });
+  }
   function equiposDesmovilizados() { return (cat().EQUIPOS || []).filter(function (e) { return equiposObra().indexOf(e) < 0; }); }
   function pestanasMantto(act) {
     if (rol() === 'OPERADOR') return '';
@@ -1706,7 +1717,8 @@
       }).join('') + '</div>' +
       (abierto ? '<div class="rango-libre"><label>Desde<input id="rgDesde" type="date" min="' + min + '" max="' + hoy() + '" value="' + (rangoLibre ? rangoLibre.desde : R.sumarDias(hoy(), -6)) + '"></label>' +
         '<label>Hasta<input id="rgHasta" type="date" min="' + min + '" max="' + hoy() + '" value="' + (rangoLibre ? rangoLibre.hasta : hoy()) + '"></label>' +
-        '<button type="button" class="btn chico primario" data-a="rangoAplicar">Aplicar</button></div>' : '') + '</div>';
+        '<button type="button" class="btn chico primario" data-a="rangoAplicar">Aplicar</button></div>' : '') + '</div>' +
+      filtroObras('obraTablero', obraTablero);  // solo aparece si hay 2 o más obras
   }
   /** Indicadores por equipo (solo línea amarilla y blanca con horómetro). */
   /** Horas de horómetro y km de un parte (calculados si la hoja aún no los trae). */
@@ -1759,7 +1771,10 @@
       if (t === 'PRODUCTIVA' || t === 'SERVICIO') prodPorParte[a.ParteID] = (prodPorParte[a.ParteID] || 0) + Number(a.DuracionHoras || 0);
     });
     // un equipo solo tiene horas programadas los días que estuvo en obra (desde su ingreso hasta antes de su salida)
-    var enObra = function (e, x) { return (!e.FechaIngresoObra || x >= e.FechaIngresoObra) && (!e.FechaSalidaObra || x < e.FechaSalidaObra) && !(e.Estado === 'BAJA' && !e.FechaSalidaObra); };
+    var enObra = function (e, x) {
+      return (!e.FechaIngresoObra || x >= e.FechaIngresoObra) && (!e.FechaSalidaObra || x < e.FechaSalidaObra) && !(e.Estado === 'BAJA' && !e.FechaSalidaObra) &&
+        (obraTablero === 'TODAS' || obraEnFecha(e, x) === obraTablero);  // con varias obras: solo los días que estuvo en la obra elegida
+    };
     return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
       return (todos || (e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
@@ -2295,6 +2310,276 @@
     }, function (err) { toast(err.message); });
   }
 
+  // ============================================================ ADMINISTRAR (solo el administrador)
+  function adm() { return cat().ADMIN || { operadores: [], supervisores: [], empresas: [], obras: cat().OBRAS || [], frentes: [], familias: [], traslados: [] }; }
+  function obrasTodas() { return adm().obras.length ? adm().obras : (cat().OBRAS || []); }
+  function obraPrincipal() { var o = obrasTodas().filter(function (x) { return x.Estado !== 'CERRADA'; })[0] || obrasTodas()[0]; return o ? o.ObraID : ''; }
+  /** Obra actual de un equipo (su ObraID, la de sus autorizaciones o la principal). */
+  function obraDeEq(e) {
+    if (e.ObraID) return e.ObraID;
+    var a = (cat().ASIGNACIONES || []).filter(function (x) { return x.EquipoID === e.EquipoID && x.Estado === 'ACTIVO'; })[0];
+    return a ? a.ObraID : obraPrincipal();
+  }
+  /** Obra de un equipo en una fecha, según el historial de traslados. */
+  function obraEnFecha(e, f) {
+    var tr = (cat().TRASLADOS || []).filter(function (t) { return t.Tipo === 'EQUIPO' && t.RegistroID === e.EquipoID; })
+      .sort(function (a, b) { return String(a.Fecha).localeCompare(String(b.Fecha)); });
+    if (!tr.length) return obraDeEq(e);
+    var o = tr[0].ObraOrigenID || obraDeEq(e);
+    tr.forEach(function (t) { if (String(t.Fecha).substring(0, 10) <= f) o = t.ObraDestinoID; });
+    return o;
+  }
+  var obraAdmin = 'TODAS', filtroAdmin = 'ACTIVOS';
+  function filtroObras(varName, actual) {
+    var obras = obrasTodas();
+    if (obras.length < 2) return '';
+    return '<div class="segmento envuelve" role="group" aria-label="Obra">' + [['TODAS', 'Todas las obras']].concat(obras.map(function (o) { return [o.ObraID, o.CodigoObra || o.Nombre]; })).map(function (x) {
+      return '<button type="button" data-a="' + varName + '" data-v="' + esc(x[0]) + '" aria-pressed="' + (x[0] === actual) + '">' + esc(x[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+  function pestanasAdmin(act) {
+    return '<div class="segmento pestanas" role="group" aria-label="Administrar">' + [['operadores', 'Operadores'], ['equipos', 'Equipos'], ['supervisores', 'Supervisores'], ['obras', 'Obras']].map(function (x) {
+      return '<button type="button" data-a="ir" data-h="#/admin/' + x[0] + '" aria-pressed="' + (x[0] === act) + '">' + x[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function selHtml(name, lista, val, vacio) {
+    return '<select name="' + name + '">' + (vacio ? '<option value="">' + esc(vacio) + '</option>' : '') + lista.map(function (x) {
+      return '<option value="' + esc(x[0]) + '"' + (x[0] === val ? ' selected' : '') + '>' + esc(x[1]) + '</option>';
+    }).join('') + '</select>';
+  }
+  function listaEmpresas() { return adm().empresas.map(function (e) { return [e.EmpresaID, e.Nombre]; }); }
+  function listaObras() { return obrasTodas().map(function (o) { return [o.ObraID, (o.CodigoObra ? o.CodigoObra + ' · ' : '') + o.Nombre]; }); }
+  function listaFamilias() { return adm().familias.map(function (f) { return [f, f.charAt(0) + f.slice(1).toLowerCase()]; }); }
+  /** Envía una acción de administración al servidor y refresca los datos. */
+  function adminOp(op, datos, alTerminar) {
+    if (!navigator.onLine) { toast('Se necesita señal para administrar.'); return; }
+    toast('Guardando…');
+    N.api('admin', Object.assign({ op: op }, datos)).then(function (r) {
+      S().cat.ADMIN = r.admin;
+      toast(r.mensaje);
+      return N.sincronizar(true).then(function () { if (alTerminar) alTerminar(r); render(); });
+    }, function (e) { toast(e.message); });
+  }
+  function chipEstadoAdmin(est) { return '<span class="estado ' + (est === 'ACTIVO' ? 'ok' : '') + '">' + (est === 'ACTIVO' ? 'Activo' : 'De baja') + '</span>'; }
+
+  function vAdmin(tab) {
+    var obras = obrasTodas();
+    var porObra = function (id) { return obraAdmin === 'TODAS' || id === obraAdmin; };
+    var segEstado = '<div class="segmento" role="group" aria-label="Estado">' + [['ACTIVOS', 'Activos'], ['BAJA', 'De baja'], ['TODOS', 'Todos']].map(function (x) {
+      return '<button type="button" data-a="filtroAdmin" data-v="' + x[0] + '" aria-pressed="' + (x[0] === filtroAdmin) + '">' + x[1] + '</button>';
+    }).join('') + '</div>';
+    var pasaEstado = function (activo) { return filtroAdmin === 'TODOS' || (filtroAdmin === 'ACTIVOS') === !!activo; };
+    var h = pestanasAdmin(tab);
+    if (tab === 'operadores') {
+      var ops = adm().operadores.filter(function (o) { return porObra(o.ObraID) && pasaEstado(o.Estado === 'ACTIVO') && coincide('admOp', [o.Nombre, o.DNI, o.Telefono, o.Especialidad].join(' ')); })
+        .sort(function (a, b) { return String(a.Nombre).localeCompare(String(b.Nombre)); });
+      h += filtroObras('obraAdmin', obraAdmin) + segEstado + barraBusq('admOp', 'Buscar nombre, DNI o celular…') +
+        '<button type="button" class="btn primario ancho" data-a="admNuevoOp">' + ic('plus') + 'Agregar operador</button>' +
+        '<div class="lista">' + (ops.length ? ops.map(function (o) {
+          return '<a class="tarjeta tocable" href="#/admin/operador/' + o.OperadorID + '" style="text-decoration:none;color:inherit;display:block;padding:12px 14px"><div class="parte-fila">' +
+            '<div class="icono-caja">' + ic('user') + '</div><div class="crece"><h3 style="white-space:normal">' + esc(o.Nombre) + '</h3><div class="mini">' + esc(o.Telefono) + ' · ' + esc((o.Especialidad || '').toLowerCase()) +
+            (obras.length > 1 ? ' · ' + esc(nombreObra(o.ObraID)) : '') + '</div></div><div class="der">' + chipEstadoAdmin(o.Estado) +
+            '<span class="mini">' + Math.round(o.Autorizaciones / 2 * 10) / 10 + ' equipo(s)</span></div></div></a>';
+        }).join('') : '<div class="vacio"><p>No hay operadores con ese filtro.</p></div>') + '</div>';
+    } else if (tab === 'equipos') {
+      var eqs = (cat().EQUIPOS || []).filter(function (e) { return porObra(obraDeEq(e)) && pasaEstado(e.Estado !== 'BAJA') && coincide('admEq', [e.CodigoInterno, e.Familia, e.Marca, e.Modelo, e.PlacaSerie].join(' ')); })
+        .sort(function (a, b) { return String(a.CodigoInterno).localeCompare(String(b.CodigoInterno), 'es', { numeric: true }); });
+      var opsPorEq = {};
+      (cat().ASIGNACIONES || []).forEach(function (a) { if (a.Estado === 'ACTIVO') (opsPorEq[a.EquipoID] = opsPorEq[a.EquipoID] || {})[a.OperadorID] = 1; });
+      h += filtroObras('obraAdmin', obraAdmin) + segEstado + barraBusq('admEq', 'Buscar código, tipo, marca o placa…') +
+        '<button type="button" class="btn primario ancho" data-a="admNuevoEq">' + ic('plus') + 'Agregar equipo</button>' +
+        '<div class="lista">' + (eqs.length ? eqs.map(function (e) {
+          var nOps = Object.keys(opsPorEq[e.EquipoID] || {}).length;
+          return '<button type="button" class="tarjeta tocable" data-a="admEditarEq" data-k="' + e.EquipoID + '" style="width:100%;text-align:left;padding:12px 14px;border:0;font:inherit;color:inherit"><div class="parte-fila">' +
+            '<div class="icono-caja acento">' + ic(e.TieneHorometro ? 'gauge' : 'truck') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) +
+            (obras.length > 1 ? ' · ' + esc(nombreObra(obraDeEq(e))) : '') + '</div></div><div class="der">' + chipEstadoAdmin(e.Estado === 'BAJA' ? 'BAJA' : 'ACTIVO') +
+            '<span class="mini">' + nOps + ' operador(es)</span></div></div></button>';
+        }).join('') : '<div class="vacio"><p>No hay equipos con ese filtro.</p></div>') + '</div>';
+    } else if (tab === 'supervisores') {
+      var sups = adm().supervisores.filter(function (s) { return pasaEstado(s.Estado === 'ACTIVO') && (obraAdmin === 'TODAS' || s.Obras.indexOf(obraAdmin) >= 0); })
+        .sort(function (a, b) { return String(a.Nombre).localeCompare(String(b.Nombre)); });
+      h += filtroObras('obraAdmin', obraAdmin) + segEstado +
+        '<button type="button" class="btn primario ancho" data-a="admSup">' + ic('plus') + 'Agregar supervisor</button>' +
+        '<p class="mini">Los supervisores entran con su <strong>correo</strong> y la contraseña <strong>ICONSER</strong>. Solo ven, revisan y aprueban los partes de sus obras.</p>' +
+        '<div class="lista">' + (sups.length ? sups.map(function (s) {
+          return '<button type="button" class="tarjeta tocable" data-a="admSup" data-k="' + s.SupervisorID + '" style="width:100%;text-align:left;padding:12px 14px;border:0;font:inherit;color:inherit"><div class="parte-fila">' +
+            '<div class="icono-caja">' + ic('checkc') + '</div><div class="crece"><h3 style="white-space:normal">' + esc(s.Nombre) + '</h3><div class="mini">' + esc(s.Email) + ' · ' +
+            esc(s.Obras.map(function (id) { return busca('OBRAS', 'ObraID', id).CodigoObra || nombreObra(id); }).join(', ') || 'sin obra') + '</div></div>' + chipEstadoAdmin(s.Estado) + '</div></button>';
+        }).join('') : '<div class="vacio"><p>Aún no hay supervisores.</p></div>') + '</div>';
+    } else {
+      var cuenta = function (id) {
+        return { eq: (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA' && obraDeEq(e) === id; }).length,
+          op: adm().operadores.filter(function (o) { return o.Estado === 'ACTIVO' && o.ObraID === id; }).length,
+          sup: adm().supervisores.filter(function (s) { return s.Estado === 'ACTIVO' && s.Obras.indexOf(id) >= 0; }).length };
+      };
+      h += '<button type="button" class="btn primario ancho" data-a="admObra">' + ic('plus') + 'Agregar obra</button>' +
+        '<div class="lista">' + obras.map(function (o) {
+          var c = cuenta(o.ObraID);
+          var fr = adm().frentes.filter(function (f) { return f.ObraID === o.ObraID && f.Estado === 'ACTIVO'; });
+          return '<button type="button" class="tarjeta tocable" data-a="admObra" data-k="' + o.ObraID + '" style="width:100%;text-align:left;border:0;font:inherit;color:inherit;display:grid;gap:10px">' +
+            '<div class="parte-fila"><div class="icono-caja acento">' + ic('building') + '</div><div class="crece"><h3>' + esc(o.Nombre) + '</h3><div class="mini">' + esc(o.CodigoObra) + (o.Cliente ? ' · ' + esc(o.Cliente) : '') + '</div></div>' +
+            '<span class="estado ' + (o.Estado === 'CERRADA' ? '' : 'ok') + '">' + esc(o.Estado === 'CERRADA' ? 'Cerrada' : 'En ejecución') + '</span></div>' +
+            '<div class="kpis" style="grid-template-columns:repeat(3,1fr)"><div class="kpi"><div class="v num">' + c.eq + '</div><div class="l">Equipos</div></div><div class="kpi"><div class="v num">' + c.op + '</div><div class="l">Operadores</div></div>' +
+            '<div class="kpi"><div class="v num">' + c.sup + '</div><div class="l">Supervisores</div></div></div>' +
+            '<div class="mini">Frentes: ' + esc(fr.map(function (f) { return f.Nombre; }).join(', ') || '—') + '</div></button>';
+        }).join('') + '</div>';
+    }
+    marco('Administrar', h, { tablero: true });
+  }
+
+  function formOperador() {
+    var obras = obrasTodas();
+    hoja('Agregar operador',
+      campo('Nombre completo', '<input name="Nombre" autocomplete="off">', true) +
+      '<div class="dos">' + campo('DNI', '<input name="DNI" inputmode="numeric" maxlength="8">', true) + campo('Celular', '<input name="Telefono" inputmode="tel" maxlength="11">', true) + '</div>' +
+      '<div class="dos">' + campo('Maneja', selHtml('Maneja', listaFamilias(), '', 'Elija…'), true) + campo('También maneja', selHtml('TambienManeja', listaFamilias(), '', '(ninguno)')) + '</div>' +
+      campo('Empresa', selHtml('EmpresaID', listaEmpresas(), (adm().empresas[0] || {}).EmpresaID), true) +
+      (obras.length > 1 ? campo('Obra', selHtml('ObraID', listaObras(), obraAdmin !== 'TODAS' ? obraAdmin : obraPrincipal()), true) : '') +
+      '<p class="mini">Entra con su celular y la contraseña general. Se le autoriza de día y de noche en los equipos de ese tipo de su obra.</p>',
+      function (v) {
+        if (!String(v.Nombre).trim() || !v.Maneja) return 'Complete el nombre y qué maneja.';
+        if (!/^\d{8}$/.test(String(v.DNI).trim())) return 'El DNI debe tener 8 dígitos.';
+        if (!/^9\d{8}$/.test(String(v.Telefono).replace(/\D/g, '').slice(-9))) return 'El celular debe tener 9 dígitos y empezar con 9.';
+        adminOp('altaOperador', v);
+      }, 'Agregar');
+  }
+
+  function vAdminOperador(id) {
+    var o = adm().operadores.filter(function (x) { return x.OperadorID === id; })[0];
+    if (!o) { marco('Operador', '<div class="vacio"><p>No disponible.</p></div>', { volver: '#/admin/operadores' }); return; }
+    var obras = obrasTodas();
+    var asig = (cat().ASIGNACIONES || []).filter(function (a) { return a.OperadorID === id && a.Estado === 'ACTIVO'; });
+    var tiene = function (eqId, tu) { return asig.some(function (a) { return a.EquipoID === eqId && a.Turno === tu; }); };
+    var eqs = (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA' && (obraDeEq(e) === o.ObraID || asig.some(function (a) { return a.EquipoID === e.EquipoID; })); })
+      .sort(function (a, b) {
+        var pa = asig.some(function (x) { return x.EquipoID === a.EquipoID; }) ? 0 : 1, pb = asig.some(function (x) { return x.EquipoID === b.EquipoID; }) ? 0 : 1;
+        return pa - pb || String(a.CodigoInterno).localeCompare(String(b.CodigoInterno), 'es', { numeric: true });
+      });
+    var activo = o.Estado === 'ACTIVO';
+    var h = '<div class="tarjeta" style="display:grid;gap:12px"><div class="parte-fila"><div class="icono-caja acento">' + ic('user') + '</div><div class="crece"><h2>' + esc(o.Nombre) + '</h2>' +
+      '<div class="mini">DNI ' + esc(o.DNI || '—') + ' · cel. ' + esc(o.Telefono) + ' · ' + esc(busca('EMPRESAS', 'EmpresaID', o.EmpresaID).NombreCorto || (adm().empresas.filter(function (e) { return e.EmpresaID === o.EmpresaID; })[0] || {}).Nombre || '') + '</div>' +
+      '<div class="mini">' + esc(nombreObra(o.ObraID)) + (o.FechaBaja ? ' · de baja desde ' + fF(o.FechaBaja) : '') + (o.ClavePendiente ? ' · aún no entra por primera vez' : '') + '</div></div>' + chipEstadoAdmin(o.Estado) + '</div>' +
+      '<div class="acciones dos-col"><button type="button" class="btn chico" data-a="admEditarOp" data-k="' + id + '">' + ic('edit') + 'Editar datos</button>' +
+      '<button type="button" class="btn chico" data-a="admClave" data-k="' + o.UsuarioID + '" data-n="' + esc(o.Nombre) + '">' + ic('refresh') + 'Restablecer clave</button>' +
+      (obras.length > 1 && activo ? '<button type="button" class="btn chico" data-a="admTrasOp" data-k="' + id + '">' + ic('move') + 'Trasladar a otra obra</button>' : '') +
+      (activo ? '<button type="button" class="btn chico peligro" data-a="admBajaOp" data-k="' + id + '" data-n="' + esc(o.Nombre) + '">' + ic('trash') + 'Dar de baja</button>'
+        : '<button type="button" class="btn chico" data-a="admReactivarOp" data-k="' + id + '">' + ic('checkc') + 'Volver a dar de alta</button>') + '</div></div>' +
+      (activo ? (function () {
+        var filaEq = function (e) {
+          var b = function (tu, et) { var on = tiene(e.EquipoID, tu); return '<button type="button" class="btn chico ' + (on ? 'primario' : '') + '" data-a="admAut" data-op="' + id + '" data-eq="' + e.EquipoID + '" data-tu="' + tu + '" data-on="' + (on ? '1' : '') + '" aria-pressed="' + on + '">' + ic(tu === 'DIA' ? 'sun' : 'moon') + et + '</button>'; };
+          return '<div class="tarjeta parte-fila" style="padding:10px 12px"><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + (obraDeEq(e) !== o.ObraID ? ' · otra obra' : '') + '</div></div>' +
+            '<div style="display:flex;gap:6px">' + b('DIA', 'Día') + b('NOCHE', 'Noche') + '</div></div>';
+        };
+        var suyos = eqs.filter(function (e) { return asig.some(function (a) { return a.EquipoID === e.EquipoID; }); });
+        var otros = eqs.filter(function (e) { return suyos.indexOf(e) < 0; });
+        return '<div class="etiqueta-seccion">Equipos autorizados (' + suyos.length + ')</div><p class="mini" style="margin:-6px 0 0">Toque Día o Noche para quitar o volver a autorizar ese turno.</p>' +
+          '<div class="lista">' + (suyos.length ? suyos.map(filaEq).join('') : '<p class="mini">Aún no tiene equipos autorizados.</p>') + '</div>' +
+          (otros.length ? '<details class="historial-mas"><summary class="btn ancho">' + ic('plus') + 'Autorizar en otro equipo (' + otros.length + ')</summary><div class="lista">' + otros.map(filaEq).join('') + '</div></details>' : '');
+      })() : '');
+    marco('Operador', h, { volver: '#/admin/operadores', tablero: true });
+  }
+
+  function formEditarOperador(id) {
+    var o = adm().operadores.filter(function (x) { return x.OperadorID === id; })[0];
+    hoja('Editar operador',
+      campo('Nombre completo', '<input name="Nombre" value="' + esc(o.Nombre) + '">', true) +
+      '<div class="dos">' + campo('DNI', '<input name="DNI" inputmode="numeric" maxlength="8" value="' + esc(o.DNI) + '">') + campo('Celular', '<input name="Telefono" inputmode="tel" value="' + esc(o.Telefono) + '">', true) + '</div>' +
+      '<div class="dos">' + campo('Maneja (principal)', selHtml('Especialidad', listaFamilias(), o.Especialidad, 'Elija…')) + campo('Empresa', selHtml('EmpresaID', listaEmpresas(), o.EmpresaID)) + '</div>',
+      function (v) {
+        if (!String(v.Nombre).trim()) return 'Falta el nombre.';
+        adminOp('editarOperador', Object.assign({ OperadorID: id }, v));
+      }, 'Guardar');
+  }
+
+  function formEquipo(id) {
+    var e = id ? equipo(id) : {};
+    var obras = obrasTodas();
+    var nuevo = !id;
+    hoja(nuevo ? 'Agregar equipo' : 'Equipo ' + e.CodigoInterno,
+      '<div class="dos">' + campo('Código interno', '<input name="Codigo" value="' + esc(e.CodigoInterno || '') + '" placeholder="ICN-EXC-009" autocomplete="off">', true) +
+      campo('Tipo', selHtml('Familia', listaFamilias(), e.Familia || '', 'Elija…'), true) + '</div>' +
+      '<div class="dos">' + campo('Marca', '<input name="Marca" value="' + esc(e.Marca || '') + '">', true) + campo('Modelo', '<input name="Modelo" value="' + esc(e.Modelo || '') + '">', true) + '</div>' +
+      '<div class="dos">' + campo('Placa o serie', '<input name="Placa" value="' + esc(e.PlacaSerie || '') + '">') + campo('Propietario', selHtml('EmpresaID', listaEmpresas(), e.EmpresaPropietariaID || (adm().empresas[0] || {}).EmpresaID)) + '</div>' +
+      '<div class="dos"><label class="check"><input type="checkbox" name="TieneHorometro"' + (nuevo || e.TieneHorometro ? ' checked' : '') + '> Tiene horómetro</label>' +
+      '<label class="check"><input type="checkbox" name="TieneOdometro"' + (e.TieneOdometro ? ' checked' : '') + '> Tiene odómetro</label></div>' +
+      (nuevo ? '<div class="dos">' + campo('Horómetro actual', '<input name="Horometro" type="number" inputmode="decimal" step="0.1" min="0">') + campo('Odómetro actual', '<input name="Odometro" type="number" inputmode="decimal" min="0">') + '</div>' +
+        (obras.length > 1 ? campo('Obra', selHtml('ObraID', listaObras(), obraAdmin !== 'TODAS' ? obraAdmin : obraPrincipal()), true) : '') +
+        '<p class="mini">Se autoriza solo a los operadores de ese tipo de la obra.</p>'
+        : '<div class="mini">' + esc(nombreObra(obraDeEq(e))) + (e.Estado === 'BAJA' ? ' · de baja desde ' + fF(e.FechaSalidaObra) : '') + '</div>' +
+          '<div class="acciones dos-col">' + (obras.length > 1 && e.Estado !== 'BAJA' ? '<button type="button" class="btn chico" data-a="admTrasEq" data-k="' + id + '">' + ic('move') + 'Trasladar</button>' : '') +
+          (e.Estado !== 'BAJA' ? '<button type="button" class="btn chico peligro" data-a="admBajaEq" data-k="' + id + '">' + ic('trash') + 'Dar de baja</button>' : '') + '</div>'),
+      function (v) {
+        if (!String(v.Codigo).trim() || !v.Familia || !String(v.Marca).trim()) return 'Complete código, tipo y marca.';
+        if (!v.TieneHorometro && !v.TieneOdometro) return 'Marque horómetro, odómetro o ambos.';
+        v.Codigo = String(v.Codigo).trim().toUpperCase();
+        if (nuevo) adminOp('altaEquipo', v); else adminOp('editarEquipo', Object.assign({ EquipoID: id }, v));
+      }, nuevo ? 'Agregar' : 'Guardar');
+  }
+
+  function formSupervisor(id) {
+    var s = id ? adm().supervisores.filter(function (x) { return x.SupervisorID === id; })[0] : { Obras: obraAdmin !== 'TODAS' ? [obraAdmin] : [obraPrincipal()], PuedeAprobar: true };
+    hoja(id ? 'Supervisor' : 'Agregar supervisor',
+      campo('Nombre completo', '<input name="Nombre" value="' + esc(s.Nombre || '') + '">', true) +
+      campo('Correo (con este entra)', '<input name="Email" type="email" inputmode="email" autocomplete="off" value="' + esc(s.Email || '') + '">', true) +
+      '<div class="dos">' + campo('Celular (opcional)', '<input name="Telefono" inputmode="tel" value="' + esc(s.Telefono || '') + '">') + campo('Empresa', selHtml('EmpresaID', listaEmpresas(), s.EmpresaID || (adm().empresas[0] || {}).EmpresaID)) + '</div>' +
+      '<div class="campo"><span>Obras que ve <span class="req">*</span></span>' + obrasTodas().map(function (o) {
+        return '<label class="check"><input type="checkbox" name="obra_' + esc(o.ObraID) + '"' + (s.Obras.indexOf(o.ObraID) >= 0 ? ' checked' : '') + '> ' + esc(o.Nombre) + '</label>';
+      }).join('') + '</div>' +
+      '<label class="check"><input type="checkbox" name="PuedeAprobar"' + (s.PuedeAprobar ? ' checked' : '') + '> Puede aprobar partes</label>' +
+      (id ? '<div class="acciones dos-col"><button type="button" class="btn chico" data-a="admClave" data-k="' + s.UsuarioID + '" data-n="' + esc(s.Nombre) + '">' + ic('refresh') + 'Restablecer clave</button>' +
+        (s.Estado === 'ACTIVO' ? '<button type="button" class="btn chico peligro" data-a="admBajaSup" data-k="' + id + '" data-n="' + esc(s.Nombre) + '">' + ic('trash') + 'Dar de baja</button>' : '') + '</div>'
+        : '<p class="mini">Entra con ese correo y la contraseña <strong>ICONSER</strong>.</p>'),
+      function (v) {
+        var obras = Object.keys(v).filter(function (k) { return k.indexOf('obra_') === 0 && v[k]; }).map(function (k) { return k.substring(5); });
+        if (!String(v.Nombre).trim() || !/@/.test(v.Email)) return 'Complete el nombre y un correo válido.';
+        if (!obras.length) return 'Marque al menos una obra.';
+        adminOp('guardarSupervisor', { SupervisorID: id || '', Nombre: v.Nombre, Email: v.Email, Telefono: v.Telefono, EmpresaID: v.EmpresaID, Obras: obras, PuedeAprobar: v.PuedeAprobar });
+      }, id ? 'Guardar' : 'Agregar');
+  }
+
+  function formObra(id) {
+    var o = id ? obrasTodas().filter(function (x) { return x.ObraID === id; })[0] : {};
+    var fr = id ? adm().frentes.filter(function (f) { return f.ObraID === id && f.Estado === 'ACTIVO'; }).map(function (f) { return f.Nombre; }) : [];
+    hoja(id ? 'Obra ' + (o.CodigoObra || '') : 'Agregar obra',
+      '<div class="dos">' + campo('Código', '<input name="CodigoObra" value="' + esc(o.CodigoObra || '') + '" placeholder="QSC-4A">', true) + campo('Inicio', '<input name="FechaInicio" type="date" value="' + esc(String(o.FechaInicio || hoy()).substring(0, 10)) + '">', true) + '</div>' +
+      campo('Nombre', '<input name="Nombre" value="' + esc(o.Nombre || '') + '">', true) +
+      '<div class="dos">' + campo('Cliente', '<input name="Cliente" value="' + esc(o.Cliente || '') + '">') + campo('Ubicación', '<input name="Ubicacion" value="' + esc(o.Ubicacion || '') + '">') + '</div>' +
+      '<div class="dos">' + campo('Empresa', selHtml('EmpresaID', listaEmpresas(), o.EmpresaID || (adm().empresas[0] || {}).EmpresaID)) +
+      campo('Estado', selHtml('Estado', [['EN EJECUCION', 'En ejecución'], ['CERRADA', 'Cerrada']], o.Estado === 'CERRADA' ? 'CERRADA' : 'EN EJECUCION')) + '</div>' +
+      campo(id ? 'Agregar frentes (separados por coma)' : 'Frentes de trabajo (separados por coma)', '<input name="Frentes" placeholder="Dique, Badén, Accesos">') +
+      (fr.length ? '<p class="mini">Frentes actuales: ' + esc(fr.join(', ')) + '</p>' : ''),
+      function (v) {
+        if (!String(v.CodigoObra).trim() || !String(v.Nombre).trim()) return 'Complete el código y el nombre.';
+        adminOp('guardarObra', Object.assign({ ObraID: id || '' }, v));
+      }, id ? 'Guardar' : 'Crear obra');
+  }
+
+  function formTraslado(tipo, id) {
+    var e = tipo === 'EQUIPO' ? equipo(id) : adm().operadores.filter(function (x) { return x.OperadorID === id; })[0];
+    var actual = tipo === 'EQUIPO' ? obraDeEq(e) : e.ObraID;
+    hoja('Trasladar ' + (tipo === 'EQUIPO' ? e.CodigoInterno : e.Nombre),
+      '<p class="sub">Ahora en: <strong>' + esc(nombreObra(actual)) + '</strong></p>' +
+      campo('A la obra', selHtml('ObraID', listaObras().filter(function (x) { return x[0] !== actual; }), '', 'Elija…'), true) +
+      campo('Desde el día', '<input name="Fecha" type="date" value="' + hoy() + '" max="' + hoy() + '">', true) +
+      '<p class="mini">Desde ese día sus horas e indicadores cuentan en la obra nueva; lo anterior queda en la obra actual. ' +
+      (tipo === 'EQUIPO' ? 'Se autoriza a los operadores de ese tipo de la obra nueva.' : 'Se le autoriza en los equipos de su tipo de la obra nueva.') + '</p>',
+      function (v) {
+        if (!v.ObraID) return 'Elija la obra.';
+        adminOp(tipo === 'EQUIPO' ? 'trasladarEquipo' : 'trasladarOperador', tipo === 'EQUIPO' ? { EquipoID: id, ObraID: v.ObraID, Fecha: v.Fecha } : { OperadorID: id, ObraID: v.ObraID, Fecha: v.Fecha });
+      }, 'Trasladar');
+  }
+
+  function formBaja(tipo, id, nombre) {
+    hoja('Dar de baja: ' + nombre,
+      campo('Desde el día (ya no trabaja)', '<input name="Fecha" type="date" value="' + hoy() + '" max="' + hoy() + '">', true) +
+      '<p class="mini">' + (tipo === 'EQUIPO' ? 'Se quitan sus autorizaciones. Sus partes e historial se conservan.' : 'Ya no podrá entrar a la app. Sus partes se conservan.') + '</p>',
+      function (v) {
+        var op = { OPERADOR: 'bajaOperador', EQUIPO: 'bajaEquipo', SUPERVISOR: 'bajaSupervisor' }[tipo];
+        var d = { Fecha: v.Fecha }; d[{ OPERADOR: 'OperadorID', EQUIPO: 'EquipoID', SUPERVISOR: 'SupervisorID' }[tipo]] = id;
+        adminOp(op, d);
+      }, 'Dar de baja');
+  }
+
   /** Clasificación de rendimiento de un equipo en el periodo. */
   var CLASE_UTIL = {
     ALTA: { t: 'Alto rendimiento', c: 'var(--ok)' },
@@ -2804,6 +3089,33 @@
     },
     filtroUtil: function (b) { filtroUtil = b.dataset.v; render(); },
     lineaTablero: function (b) { lineaTablero = b.dataset.v; render(); },
+    obraTablero: function (b) { obraTablero = b.dataset.v; render(); },
+    obraAdmin: function (b) { obraAdmin = b.dataset.v; render(); },
+    filtroAdmin: function (b) { filtroAdmin = b.dataset.v; render(); },
+    admNuevoOp: function () { formOperador(); },
+    admEditarOp: function (b) { formEditarOperador(b.dataset.k); },
+    admReactivarOp: function (b) {
+      var o = adm().operadores.filter(function (x) { return x.OperadorID === b.dataset.k; })[0];
+      adminOp('altaOperador', { Nombre: o.Nombre, DNI: o.DNI, Telefono: o.Telefono, EmpresaID: o.EmpresaID, Maneja: o.Especialidad, ObraID: o.ObraID });
+    },
+    admClave: function (b) {
+      confirmar('Restablecer contraseña', b.dataset.n + ' volverá a entrar con la contraseña general (operador) o ICONSER (supervisor). Se cierran sus sesiones abiertas.', 'Restablecer')
+        .then(function (si) { if (si) adminOp('clave', { UsuarioID: b.dataset.k }); });
+    },
+    admTrasOp: function (b) { formTraslado('OPERADOR', b.dataset.k); },
+    admBajaOp: function (b) { formBaja('OPERADOR', b.dataset.k, b.dataset.n); },
+    admNuevoEq: function () { formEquipo(''); },
+    admEditarEq: function (b) { formEquipo(b.dataset.k); },
+    admTrasEq: function (b) { formTraslado('EQUIPO', b.dataset.k); },
+    admBajaEq: function (b) { formBaja('EQUIPO', b.dataset.k, equipo(b.dataset.k).CodigoInterno); },
+    admSup: function (b) { formSupervisor(b.dataset.k || ''); },
+    admBajaSup: function (b) { formBaja('SUPERVISOR', b.dataset.k, b.dataset.n); },
+    admObra: function (b) { formObra(b.dataset.k || ''); },
+    admAut: function (b) {
+      var on = !!b.dataset.on;
+      b.disabled = true;
+      adminOp('autorizar', { OperadorID: b.dataset.op, EquipoID: b.dataset.eq, Turno: b.dataset.tu, SoloTurno: true, Activo: !on });
+    },
     descargarExcel: function () { descargarExcel(); },
     filtroPlan: function (b) { filtroPlan = b.dataset.v; render(); },
     ojo: function (b) {
@@ -2940,6 +3252,10 @@
     if (r[1] === 'equipos' && !esOp) return vEquipos();
     if (r[1] === 'equipo' && r[2] && !esOp) return vEquipo(r[2]);
     if (r[1] === 'reportes' && !esOp) return vReportes();
+    if (r[1] === 'admin' && rol() === 'ADMIN') {
+      if (r[2] === 'operador' && r[3]) return vAdminOperador(r[3]);
+      return vAdmin(r[2] || 'operadores');
+    }
     if (r[1] === 'cuenta') return vCuenta();
     if (esOp && r[1] === 'inicio') return vInicio();
     location.replace(esOp ? '#/inicio' : '#/revisar');
