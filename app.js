@@ -1752,8 +1752,12 @@
       d.hp += hp; d.hi = Math.min(d.hi + hr, d.hp); d.hm += Math.max(0, Number(x[5]) || 0); d.paradas += Math.max(0, Number(x[8]) || 0);
       if (x[9] && hr > 0) d.sis[x[9]] = (d.sis[x[9]] || 0) + hr;
     });
-    var ini = '';
-    N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO'; }).forEach(function (p) { if (!ini || p.FechaTrabajo < ini) ini = p.FechaTrabajo; });
+    // inicio real de la app: el primer día con 5 o más partes (los partes sueltos de antes eran pruebas).
+    // Desde ese día las paradas salen de FALLAS (reporte de paradas + lo registrado en la app); antes, del Excel KPI.
+    var porDia = {};
+    N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO'; }).forEach(function (p) { porDia[p.FechaTrabajo] = (porDia[p.FechaTrabajo] || 0) + 1; });
+    var diasP = Object.keys(porDia).sort();
+    var ini = diasP.filter(function (x) { return porDia[x] >= 5; })[0] || diasP[0];
     _hist = { src: h, porEq: porEq, inicioApp: ini || hoy() };
     return _hist;
   }
@@ -1813,15 +1817,18 @@
         if (isNaN(a) || b <= a) return;
         var iniF = R.enLima(a).fecha;
         var sis = busca('SISTEMAS_FALLA', 'SistemaID', f.SistemaID).Nombre || 'OTROS';
-        if (iniF >= rg.desde && iniF <= rg.hasta && !deExcel[iniF] && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) { nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1; }
+        // antes del inicio de la app, los días del Excel traen sus propias paradas: no se suman las de FALLAS
+        var soloExcel = function (x) { return deExcel[x] && x < H.inicioApp; };
+        if (iniF >= rg.desde && iniF <= rg.hasta && !soloExcel(iniF) && ['PREVENTIVO', 'INSPECCION'].indexOf(f.TipoIntervencion) < 0) { nFallas++; fallasDia[iniF] = (fallasDia[iniF] || 0) + 1; }
         dias.forEach(function (x) {
-          if (deExcel[x]) return;
+          if (soloExcel(x)) return;
           var d0 = Date.parse(x + 'T00:00:00-05:00'), d1 = d0 + 86400000;
           var h = Math.max(0, Math.min(b, d1) - Math.max(a, d0)) / 3600000;
           if (h > 0) { paraDia[x] = (paraDia[x] || 0) + h; porSistema[sis] = (porSistema[sis] || 0) + h; }
         });
       });
       Object.keys(deExcel).forEach(function (x) {
+        if (x >= H.inicioApp) return;  // desde el inicio de la app las paradas salen de FALLAS, no de la columna HR del Excel
         var hx = deExcel[x];
         paraDia[x] = hx.hi;
         if (hx.paradas) { nFallas += hx.paradas; fallasDia[x] = (fallasDia[x] || 0) + hx.paradas; }
@@ -2263,8 +2270,10 @@
             var h = histTurno[e.EquipoID + '|' + x + '|' + tu];
             if (!h) return;
             hayExcel = true;
-            fila({ tu: tu, ini: h.ini, fin: h.fin, trab: km ? 0 : Math.min(h.hm, 24), km: km ? h.hm : 0, hp: h.hp || hpDia, par: h.hi, n: h.paradas, sis: h.sis,
-              estado: h.estado, origen: 'Excel KPI' });
+            // desde el inicio de la app, las paradas de ese turno salen de FALLAS (reporte de paradas + app)
+            var ftx = x >= historico().inicioApp ? enTurno(e.EquipoID, x, tu, h.hp || hpDia) : null;
+            fila({ tu: tu, ini: h.ini, fin: h.fin, trab: km ? 0 : Math.min(h.hm, 24), km: km ? h.hm : 0, hp: h.hp || hpDia,
+              par: ftx ? ftx.horas : h.hi, n: ftx ? ftx.n : h.paradas, sis: ftx ? ftx.sis : h.sis, estado: h.estado, origen: 'Excel KPI' });
           });
           if (!hayExcel && i.hpDia[x]) fila({ tu: 'DIA', hp: hpDia, par: 0, trab: 0, km: 0, estado: 'Sin parte', origen: 'Sin parte' });
         });
