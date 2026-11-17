@@ -1792,6 +1792,26 @@
     });
     return out;
   }
+  /**
+   * ¿El equipo se mide por horómetro? Si tiene los dos medidores pero en sus partes solo se anota el odómetro
+   * (p. ej. la cisterna de combustible CC-001), se trata como equipo de kilometraje.
+   */
+  var _usaH = { n: -1, m: {} };
+  function usaHorometro(e) {
+    if (!e.TieneHorometro) return false;
+    if (!e.TieneOdometro) return true;
+    var partes = N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO'; });
+    if (_usaH.n !== partes.length) {
+      _usaH = { n: partes.length, m: {} };
+      partes.forEach(function (p) {
+        var x = _usaH.m[p.EquipoID] = _usaH.m[p.EquipoID] || { h: 0, k: 0 };
+        if (R.num(p.HorometroFinal) !== null) x.h++;
+        if (R.num(p.OdometroFinal) !== null) x.k++;
+      });
+    }
+    var c = _usaH.m[e.EquipoID];
+    return !c || c.h > 0 || c.k === 0;
+  }
   /** Indicadores por equipo. Por defecto solo línea amarilla y blanca con horómetro; todos = true incluye todos los equipos. */
   function indicadoresMantto(rg, todos) {
     var dias = [];
@@ -1812,7 +1832,7 @@
     };
     return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
-      return (todos || (e.TieneHorometro && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
+      return (todos || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
       var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {};
@@ -1828,9 +1848,9 @@
         var hx = hEq[x];
         if (!hx || conParte[x]) return;
         deExcel[x] = hx;
-        var trab = e.TieneHorometro ? Math.min(hx.hm, 24) : 0;
+        var trab = usaHorometro(e) ? Math.min(hx.hm, 24) : 0;
         conParte[x] = 1; htDia[x] = trab; ht += trab;
-        if (!e.TieneHorometro) km += hx.hm;
+        if (!usaHorometro(e)) km += hx.hm;
       });
       // antes de empezar a usar la app solo cuentan los días que tienen dato (del Excel)
       var conDato = function (x) { return x >= H.inicioApp || deExcel[x]; };
@@ -1881,7 +1901,7 @@
       if (totSis > 0) Object.keys(porSistema).forEach(function (k) { porSistema[k] = porSistema[k] * hi / totSis; });
       return { eq: e, linea: lineaDe(e), hp: hp, hi: hi, nFallas: nFallas, dm: hp ? (hp - hi) / hp : 1,
         ht: ht, km: km, hprod: hprod, diasObra: diasObra, diasParte: Object.keys(conParte).filter(function (x) { return hpDia[x] > 0; }).length, htDia: htDia,
-        soloKm: !e.TieneHorometro, fallasDia: fallasDia, deExcel: deExcel,
+        soloKm: !usaHorometro(e), fallasDia: fallasDia, deExcel: deExcel,
         mtbf: nFallas ? (hp - hi) / nFallas : null, mttr: nFallas ? hi / nFallas : null, hpDia: hpDia, hiDia: hiDia, porSistema: porSistema };
     });
   }
@@ -2145,7 +2165,7 @@
         var i = porId[e.EquipoID];
         var u = i && !i.soloKm && i.hp ? Math.min(1, i.ht / i.hp) : null;
         return '<a class="tarjeta tocable" href="#/equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;display:grid;gap:8px;padding:12px 14px">' +
-          '<div class="parte-fila"><div class="icono-caja acento">' + ic(e.TieneHorometro ? 'gauge' : 'truck') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + '</div></div>' + chipPM(e) + '</div>' +
+          '<div class="parte-fila"><div class="icono-caja acento">' + ic(usaHorometro(e) ? 'gauge' : 'truck') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + '</div></div>' + chipPM(e) + '</div>' +
           (i ? '<div class="dos mini"><div>Disponibilidad ' + barra(i.dm * 100, colorDM(i.dm), pct1(i.dm)) + '</div>' +
             '<div>' + (u !== null ? 'Utilización ' + barra(u * 100, u >= .6 ? 'var(--texto)' : 'var(--aviso)', pct1(u)) : 'Recorrido <strong style="color:var(--texto)">' + n1(i.km) + ' km</strong>') + '</div></div>' : '') + '</a>';
       }).join('') + '</div>';
@@ -2163,7 +2183,7 @@
     var se = serieKPI(i ? [i] : [], rg);
     var et = se.puntos.map(function (p) { return p.et; });
     // lecturas del horómetro/odómetro: partes de la app y histórico del Excel
-    var km = !e.TieneHorometro;
+    var km = !usaHorometro(e);
     var lect = {};
     (S().hist || []).forEach(function (x) { if (x[1] === id && x[7]) lect[String(x[0]).substring(0, 10)] = Number(x[7]); });
     N.filas('PARTES_DIARIOS', function (p) { return p.EquipoID === id && p.Estado !== 'ANULADO'; }).forEach(function (p) {
