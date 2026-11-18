@@ -615,7 +615,7 @@
     var foto = evP[evP.length - 1];
     var est = foto ? N.estadoIA(foto.EvidenciaID) : null;
     var lp = ultimaLecturaParte(id);
-    var estado = !foto ? '' : est && est.estado === 'leyendo' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está leyendo su parte…</strong><div class="sub">Tarda unos segundos. Puede esperar aquí.</div></div></div>'
+    var estado = !foto ? '' : est && est.estado === 'leyendo' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está leyendo su parte…</strong><div class="sub">Suele tardar de 10 a 40 segundos. Puede esperar aquí o seguir con otra cosa: el parte se llenará solo.</div></div></div>'
       : !foto._srv ? '<div class="aviso">' + ic('cloudoff') + '<div>La foto se enviará cuando haya señal; luego la IA llenará el parte.</div></div>'
       : est && est.estado === 'error' && est.codigo === 'IA_LIMITE' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está llena por ahora (muchas fotos a la vez).</strong><div class="sub">La foto ya quedó guardada. El servidor la leerá solo más tarde y llenará el parte. No tiene que hacer nada más.</div><button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + foto.EvidenciaID + '">' + ic('refresh') + 'Reintentar ahora</button></div></div>'
       : (est && est.estado === 'error') || (N.lecturaDe(foto.EvidenciaID) || {}).Estado === 'ERROR' ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>La IA no pudo leer la foto.</strong><div class="sub">' + esc((est && est.msg) || '') + '</div><button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + foto.EvidenciaID + '">' + ic('refresh') + 'Reintentar</button></div></div>'
@@ -3108,8 +3108,9 @@
     },
     iaRepetir: function (b) {
       if (!navigator.onLine) { toast('Sin señal: la IA leerá la foto cuando haya conexión.'); return; }
-      N.leerIA(b.dataset.ev, true);
-      toast('La IA está leyendo la foto…');
+      // sin "repetir": si la IA ya leyó la foto, el servidor devuelve lo leído al instante (no se vuelve a leer)
+      N.leerIA(b.dataset.ev, false);
+      toast('Buscando lo que leyó la IA…');
     },
     iaUsar: function (b) {
       var el = document.querySelector('#fPaso [name="' + b.dataset.campo + '"]');

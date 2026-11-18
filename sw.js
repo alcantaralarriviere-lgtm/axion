@@ -1,12 +1,12 @@
-/* AXION · Service worker: guarda la app en el celular para abrirla sin señal.
- * Los datos NO pasan por aquí (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
+/* AXION Â· Service worker: guarda la app en el celular para abrirla sin seÃ±al.
+ * Los datos NO pasan por aquÃ­ (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
  */
-var VERSION = 'axion-v43';
+var VERSION = 'axion-v44';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'config.js', 'reglas.js', 'nucleo.js', 'app.js',
   'manifest.webmanifest', 'icono-192.png', 'icono-512.png'];
 
 self.addEventListener('install', function (e) {
-  // 'reload': baja los archivos del servidor (no la copia vieja del navegador) para guardarlos sin señal
+  // 'reload': baja los archivos del servidor (no la copia vieja del navegador) para guardarlos sin seÃ±al
   e.waitUntil(caches.open(VERSION).then(function (c) {
     return c.addAll(ARCHIVOS.map(function (u) { return new Request(u, { cache: 'reload' }); }));
   }).then(function () { return self.skipWaiting(); }));
@@ -21,7 +21,7 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   // red primero (para recibir actualizaciones); 'no-cache' pregunta siempre al servidor y no usa la copia de 10 min
-  // que guarda el navegador de GitHub Pages; sin señal, la copia guardada
+  // que guarda el navegador de GitHub Pages; sin seÃ±al, la copia guardada
   e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(function (r) {
     var copia = r.clone();
     caches.open(VERSION).then(function (c) { c.put(e.request, copia); });

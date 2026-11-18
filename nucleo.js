@@ -58,8 +58,8 @@ var Nucleo = (function () {
   // ------------------------------------------------------------ red
   // Google a veces pierde o demora la respuesta (la petición se queda colgada o llega el saludo del servidor
   // en vez de la respuesta): cada pedido tiene un tiempo máximo y se reintenta solo.
-  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 40000, subirFoto: 90000, leerFoto: 60000 };
-  var REINTENTOS = { leerFoto: 0, subirFoto: 1, login: 3 };
+  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 40000, subirFoto: 90000, leerFoto: 45000, estadoIA: 15000 };
+  var REINTENTOS = { leerFoto: 0, subirFoto: 1, login: 3, estadoIA: 1 };
   function api(accion, datos) {
     var url = (window.AXION_CONFIG && AXION_CONFIG.API_URL) || '/api';
     var cuerpo = JSON.stringify({ accion: accion, datos: datos, token: S.token });
@@ -246,17 +246,41 @@ var Nucleo = (function () {
   /** Pide al servidor leer una foto ya recibida. La IA tarda unos segundos; el resultado queda en LECTURAS_IA. */
   function leerIA(evId, repetir) {
     if (ia[evId] && ia[evId].estado === 'leyendo') return Promise.resolve();
-    ia[evId] = { estado: 'leyendo', t: Date.now() };
+    var t0 = Date.now();
+    ia[evId] = { estado: 'leyendo', t: t0 };
     avisar();
-    return api('leerFoto', { EvidenciaID: evId, repetir: !!repetir }).then(function (r) {
-      delete ia[evId];
-      aplicarServidor('LECTURAS_IA', r.lectura);
-      avisar();
-    }, function (e) {
+    var listo = function (l) { delete ia[evId]; aplicarServidor('LECTURAS_IA', l); avisar(); };
+    return api('leerFoto', { EvidenciaID: evId, repetir: !!repetir }).then(function (r) { listo(r.lectura); }, function (e) {
+      // Google suele perder la RESPUESTA aunque la IA ya terminó (o la foto ya se está leyendo):
+      // en vez de mostrar error, se pregunta al servidor cada pocos segundos por lo leído
+      if (e.codigo === 'OCUPADO' || e.codigo === 'RED' || e.codigo === 'LEYENDO') return esperarIA(evId, t0, listo);
       ia[evId] = { estado: 'error', msg: e.message, codigo: e.codigo, t: Date.now() };
       if (e.codigo === 'IA_ERROR') descargar(false).catch(function () {});  // trae la fila ERROR guardada
-      // la respuesta se perdió en el camino pero el servidor pudo haber leído la foto: se trae lo leído en un rato
-      if (e.codigo === 'OCUPADO' || e.codigo === 'RED') setTimeout(function () { if (S && S.token) descargar(false).then(avisar, function () {}); }, 20000);
+      avisar();
+    });
+  }
+  /** Consulta liviana hasta 2 min: devuelve la lectura en cuanto el servidor la tenga guardada. */
+  function esperarIA(evId, t0, listo) {
+    var limite = t0 + 120000;
+    var preguntar = function () {
+      return new Promise(function (ok) { setTimeout(ok, 5000); }).then(function () {
+        if (!S || !S.token) return;
+        return api('estadoIA', { EvidenciaID: evId }).then(function (r) {
+          var l = r.lectura;
+          if (l && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA')) return listo(l);
+          if (l && l.Estado === 'ERROR' && !r.leyendo && Date.parse(l.FechaHoraServidor) >= t0 - 60000) {
+            aplicarServidor('LECTURAS_IA', l);
+            ia[evId] = { estado: 'error', msg: l.Error || 'La IA no pudo leer la foto.', codigo: 'IA_ERROR', t: Date.now() };
+            return avisar();
+          }
+          if (Date.now() < limite) return preguntar();
+          throw new Error('fin');
+        }, function (e) { if (Date.now() < limite && e.codigo !== 'NO_EXISTE') return preguntar(); throw e; });
+      });
+    };
+    return preguntar().catch(function () {
+      ia[evId] = { estado: 'error', codigo: 'DEMORA', t: Date.now(),
+        msg: 'Google está lento ahora. La foto ya está guardada: toque Reintentar en un momento (no se vuelve a leer, solo trae lo leído).' };
       avisar();
     });
   }
