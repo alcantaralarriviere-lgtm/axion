@@ -169,7 +169,8 @@
       '<span class="ayuda">La primera vez use la contraseña que le dio el administrador; luego creará la suya.</span></label>' +
       (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
       '<button class="btn primario ancho" type="submit">Ingresar</button>' +
-      '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form></main>';
+      '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form>' +
+      '<p class="mini" style="text-align:center"><a href="descubre.html">Conozca cómo funciona AXION →</a></p></main>';
     document.getElementById('fIngreso').onsubmit = function (e) {
       e.preventDefault();
       var f = new FormData(e.target);

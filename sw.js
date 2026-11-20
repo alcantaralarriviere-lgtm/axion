@@ -1,7 +1,7 @@
 /* AXION Â· Service worker: guarda la app en el celular para abrirla sin seÃ±al.
  * Los datos NO pasan por aquÃ­ (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
  */
-var VERSION = 'axion-v44';
+var VERSION = 'axion-v45';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'config.js', 'reglas.js', 'nucleo.js', 'app.js',
   'manifest.webmanifest', 'icono-192.png', 'icono-512.png'];
 
