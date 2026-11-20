@@ -43,9 +43,9 @@ body { min-height: 100dvh; background: transparent; }  /* el color base lo da <h
 /* Fondo de maquinaria fijo: una sola capa ya oscurecida y desenfocada en el archivo (12 KB en el celular),
  * sin filtros ni background-attachment:fixed (lentos en celulares de gama baja). */
 body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; transform: translateZ(0);
-  background: linear-gradient(180deg, rgba(10, 10, 11, .30) 0%, rgba(10, 10, 11, .55) 45%, rgba(10, 10, 11, .82) 100%),
+  background: linear-gradient(180deg, rgba(10, 10, 11, .12) 0%, rgba(10, 10, 11, .42) 45%, rgba(10, 10, 11, .78) 100%),
     url("fondo-movil.jpg") center 30% / cover no-repeat;
-  background: linear-gradient(180deg, rgba(10, 10, 11, .30) 0%, rgba(10, 10, 11, .55) 45%, rgba(10, 10, 11, .82) 100%),
+  background: linear-gradient(180deg, rgba(10, 10, 11, .12) 0%, rgba(10, 10, 11, .42) 45%, rgba(10, 10, 11, .78) 100%),
     image-set(url("fondo-movil.webp") type("image/webp"), url("fondo-movil.jpg") type("image/jpeg")) center 30% / cover no-repeat; }
 @media (min-width: 900px) and (min-aspect-ratio: 1/1) {
   body::before { background: linear-gradient(90deg, rgba(10, 10, 11, .55), rgba(10, 10, 11, .78)), url("fondo-ancho.jpg") center / cover no-repeat;
