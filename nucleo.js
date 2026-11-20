@@ -49,7 +49,29 @@ var Nucleo = (function () {
 
   function iniciar() {
     return abrir().then(function () { return idb('kv', 'readonly', function (s) { return s.get('estado'); }); })
-      .then(function (e) { S = e || vacio(); return S; });
+      .then(function (e) { S = e || vacio(); setTimeout(limpiarFotos, 8000); return S; });
+  }
+  /**
+   * Las fotos ya subidas se borran del celular pasados 3 días (si se necesitan, se ven desde el servidor).
+   * Antes se guardaban para siempre y en celulares de gama baja llenaban la memoria y volvían lenta la app.
+   * Nunca se borra una foto que aún no llegó al servidor.
+   */
+  function limpiarFotos() {
+    if (!db || !S) return;
+    var limite = Reglas.sumarDias(Reglas.enLima(Date.now()).fecha, -3);
+    var enCola = {};
+    S.outbox.forEach(function (it) { enCola[it.ref] = 1; });
+    idb('fotos', 'readonly', function (s) { return s.getAllKeys ? s.getAllKeys() : null; }).then(function (claves) {
+      var borrar = (claves || []).filter(function (k) {
+        if (enCola[k]) return false;
+        var e = S.t.EVIDENCIAS[k];
+        if (!e) return true;                       // foto suelta de un parte que ya no está
+        if (!e._srv || e._error) return false;     // aún no subida: se conserva
+        var p = S.t.PARTES_DIARIOS[e.ParteID];
+        return !p || String(p.FechaTrabajo || '') < limite;
+      });
+      if (borrar.length) return idb('fotos', 'readwrite', function (s) { borrar.forEach(function (k) { s.delete(k); }); });
+    }).catch(function () { /* sin limpieza: no es grave */ });
   }
 
   function avisar() { persistir(); oyentes.forEach(function (f) { try { f(); } catch (e) { console.error(e); } }); }

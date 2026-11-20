@@ -1,12 +1,12 @@
-/* AXION Â· Service worker: guarda la app en el celular para abrirla sin seÃ±al.
- * Los datos NO pasan por aquÃ­ (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
+/* AXION · Service worker: guarda la app en el celular para abrirla sin señal.
+ * Los datos NO pasan por aquí (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
  */
-var VERSION = 'axion-v46';
-var ARCHIVOS = ['./', 'index.html', 'styles.css', 'config.js', 'reglas.js', 'nucleo.js', 'app.js',
-  'manifest.webmanifest', 'icono-192.png', 'icono-512.png', 'excavadora-1200.webp'];
+var VERSION = 'axion-v47';
+var ARCHIVOS = ['./', 'index.html', 'styles.css', 'config.js', 'reglas.js', 'nucleo.js', 'camara.js', 'app.js',
+  'manifest.webmanifest', 'icono-192.png', 'icono-512.png', 'fondo-movil.webp', 'fondo-movil.jpg', 'excavadora-720.webp'];
 
 self.addEventListener('install', function (e) {
-  // 'reload': baja los archivos del servidor (no la copia vieja del navegador) para guardarlos sin seÃ±al
+  // 'reload': baja los archivos del servidor (no la copia vieja del navegador) para guardarlos sin señal
   e.waitUntil(caches.open(VERSION).then(function (c) {
     return c.addAll(ARCHIVOS.map(function (u) { return new Request(u, { cache: 'reload' }); }));
   }).then(function () { return self.skipWaiting(); }));
@@ -20,13 +20,16 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
-  // red primero (para recibir actualizaciones); 'no-cache' pregunta siempre al servidor y no usa la copia de 10 min
-  // que guarda el navegador de GitHub Pages; sin seÃ±al, la copia guardada
-  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(function (r) {
-    var copia = r.clone();
-    caches.open(VERSION).then(function (c) { c.put(e.request, copia); });
-    return r;
-  }).catch(function () {
-    return caches.match(e.request, { ignoreSearch: true }).then(function (r) { return r || caches.match('index.html'); });
+  // la copia guardada primero: la app abre AL INSTANTE aunque la señal sea mala (antes esperaba a la red cada vez).
+  // En segundo plano se baja la versión nueva ('no-cache' pregunta al servidor) y queda lista para la próxima vez.
+  e.respondWith(caches.open(VERSION).then(function (c) {
+    return c.match(e.request, { ignoreSearch: true }).then(function (guardada) {
+      var red = fetch(e.request, { cache: 'no-cache' }).then(function (r) {
+        if (r && r.ok) c.put(e.request, r.clone());
+        return r;
+      });
+      if (guardada) { e.waitUntil(red.catch(function () {})); return guardada; }
+      return red.catch(function () { return c.match('index.html'); });
+    });
   }));
 });

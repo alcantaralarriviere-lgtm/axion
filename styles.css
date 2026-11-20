@@ -39,10 +39,19 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--fondo); color: var(--texto); font-family: var(--fuente);
   font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
-body { min-height: 100dvh;
-  background: radial-gradient(90% 50% at 100% 0%, rgba(255, 176, 0, .07), transparent 60%),
-              radial-gradient(70% 40% at 0% 100%, rgba(255, 122, 26, .05), transparent 60%), var(--fondo);
-  background-attachment: fixed; }
+body { min-height: 100dvh; background: transparent; }  /* el color base lo da <html>; así se ve la imagen fija de abajo */
+/* Fondo de maquinaria fijo: una sola capa ya oscurecida y desenfocada en el archivo (12 KB en el celular),
+ * sin filtros ni background-attachment:fixed (lentos en celulares de gama baja). */
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; transform: translateZ(0);
+  background: linear-gradient(180deg, rgba(10, 10, 11, .30) 0%, rgba(10, 10, 11, .55) 45%, rgba(10, 10, 11, .82) 100%),
+    url("fondo-movil.jpg") center 30% / cover no-repeat;
+  background: linear-gradient(180deg, rgba(10, 10, 11, .30) 0%, rgba(10, 10, 11, .55) 45%, rgba(10, 10, 11, .82) 100%),
+    image-set(url("fondo-movil.webp") type("image/webp"), url("fondo-movil.jpg") type("image/jpeg")) center 30% / cover no-repeat; }
+@media (min-width: 900px) and (min-aspect-ratio: 1/1) {
+  body::before { background: linear-gradient(90deg, rgba(10, 10, 11, .55), rgba(10, 10, 11, .78)), url("fondo-ancho.jpg") center / cover no-repeat;
+    background: linear-gradient(90deg, rgba(10, 10, 11, .55), rgba(10, 10, 11, .78)),
+      image-set(url("fondo-ancho.webp") type("image/webp"), url("fondo-ancho.jpg") type("image/jpeg")) center / cover no-repeat; }
+}
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--acento); }
 :focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; border-radius: 6px; }
@@ -55,8 +64,7 @@ a { color: var(--acento); }
 .app { max-width: 720px; margin: 0 auto; min-height: 100dvh; background: transparent;
   padding-bottom: calc(var(--barra) + env(safe-area-inset-bottom) + 36px); }
 .cabecera { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
-  padding: calc(14px + env(safe-area-inset-top)) var(--esp) 10px; background: rgba(10, 10, 11, .78);
-  backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+  padding: calc(14px + env(safe-area-inset-top)) var(--esp) 10px; background: rgba(10, 10, 11, .92);
   border-bottom: 1px solid rgba(255, 255, 255, .05); }
 .marca { font-weight: 900; letter-spacing: .1em; font-size: 13px; color: var(--texto-3); display: none; }
 .cabecera .titulo { flex: 1; font-weight: 900; font-size: 28px; letter-spacing: -.02em; line-height: 1.1; font-stretch: 108%;
@@ -78,7 +86,7 @@ a { color: var(--acento); }
   display: flex; justify-content: center; pointer-events: none; padding: 0 var(--esp); }
 .nav-in { pointer-events: auto; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px;
   width: 100%; max-width: 360px; padding: 6px; border-radius: 999px;
-  background: rgba(22, 22, 25, .86); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
+  background: rgba(20, 20, 23, .97);
   border: 1px solid var(--borde-2); box-shadow: var(--luz), 0 22px 44px -12px rgba(0, 0, 0, .9), 0 0 0 1px rgba(0, 0, 0, .6); }
 .nav a { min-height: 52px; display: grid; place-items: center; align-content: center; gap: 0; border-radius: 999px;
   color: rgba(244, 241, 234, .58); text-decoration: none; font-size: 10px; font-weight: 600; position: relative;
@@ -136,16 +144,21 @@ h3 { font-size: 16px; margin: 0; font-weight: 700; }
 .etiqueta-seccion::before { content: ""; width: 18px; height: 3px; border-radius: 2px; background: var(--acento); flex: none; }
 
 /* ---------- tarjetas en relieve (se inclinan en 3D al pasar el dedo o el mouse: ver app.js "relieve") */
-.tarjeta { background: linear-gradient(165deg, var(--sup-1), var(--sup-1b)); border: 1px solid var(--borde); border-radius: var(--radio);
+.tarjeta { background: linear-gradient(165deg, rgba(26, 26, 30, .94), rgba(17, 17, 20, .96)); border: 1px solid var(--borde); border-radius: var(--radio);
   padding: 16px; box-shadow: var(--sombra-suave); position: relative; }
-.tarjeta.tocable { cursor: pointer; transform-style: preserve-3d;
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
-  transition: transform .25s cubic-bezier(.2, .7, .2, 1), box-shadow .25s ease, border-color .25s ease; }
-.tarjeta.tocable::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
-  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 0%), rgba(255, 176, 0, .12), transparent 60%); transition: opacity .25s; }
-.tarjeta.tocable:hover { border-color: rgba(255, 176, 0, .28); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 26px 44px -18px rgba(0, 0, 0, .95), 0 0 0 1px rgba(255, 176, 0, .08); }
-.tarjeta.tocable:hover::after { opacity: 1; }
-.tarjeta.tocable:active { transform: perspective(900px) translateZ(-14px) scale(.985); box-shadow: var(--luz), 0 6px 14px -8px rgba(0, 0, 0, .9); }
+/* en el celular: sin capas 3D por tarjeta (con muchos partes gastan memoria); solo se hunde al tocar */
+.tarjeta.tocable { cursor: pointer; transition: transform .12s ease, border-color .2s ease; }
+.tarjeta.tocable:active { transform: scale(.985); }
+/* con mouse (computadora): la tarjeta se inclina en 3D y brilla donde está el puntero */
+@media (hover: hover) and (pointer: fine) {
+  .tarjeta.tocable { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform .25s cubic-bezier(.2, .7, .2, 1), box-shadow .25s ease, border-color .25s ease; }
+  .tarjeta.tocable::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+    background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 0%), rgba(255, 176, 0, .12), transparent 60%); transition: opacity .25s; }
+  .tarjeta.tocable:hover { border-color: rgba(255, 176, 0, .28); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 26px 44px -18px rgba(0, 0, 0, .95), 0 0 0 1px rgba(255, 176, 0, .08); }
+  .tarjeta.tocable:hover::after { opacity: 1; }
+  .tarjeta.tocable:active { transform: perspective(900px) translateZ(-14px) scale(.985); }
+}
 .tarjeta.destacada { border-color: rgba(255, 176, 0, .55); box-shadow: 0 0 0 1px var(--acento), 0 18px 40px -18px rgba(255, 176, 0, .35), var(--sombra-suave); }
 .fila { display: flex; align-items: center; gap: 12px; }
 .fila .crece { flex: 1; min-width: 0; }
@@ -336,7 +349,7 @@ h3 { font-size: 16px; margin: 0; font-weight: 700; }
 
 /* ---------- diálogo y toast */
 dialog { border: 0; padding: 0; background: transparent; max-width: 720px; width: 100%; margin: auto 0 0; color: var(--texto); }
-dialog::backdrop { background: rgba(0, 0, 0, .66); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+dialog::backdrop { background: rgba(0, 0, 0, .72); }
 .hoja { background: linear-gradient(180deg, #1D1D21, #141417); border: 1px solid var(--borde-2); border-bottom: 0; border-radius: 26px 26px 0 0;
   padding: 20px var(--esp) calc(20px + env(safe-area-inset-bottom)); box-shadow: var(--luz), 0 -20px 60px rgba(0, 0, 0, .6);
   display: grid; gap: 14px; max-height: 92dvh; overflow-y: auto; animation: subeHoja .32s cubic-bezier(.2, .8, .2, 1); }
@@ -360,14 +373,16 @@ dialog::backdrop { background: rgba(0, 0, 0, .66); backdrop-filter: blur(4px); -
 /* ---------- ingreso: escena 3D con la máquina de fondo y la tarjeta flotando */
 .ingreso { position: relative; min-height: 100dvh; display: grid; align-content: end; gap: 24px; overflow: hidden; isolation: isolate;
   padding: 24px var(--esp) calc(28px + env(safe-area-inset-bottom)); perspective: 1200px; }
-.ingreso-fondo { position: absolute; inset: -4%; z-index: -2; background: #1d1810 center 40% / cover no-repeat;
-  background-image: image-set(url("excavadora-1200.webp") type("image/webp"), url("excavadora-1200.jpg") type("image/jpeg"));
+.ingreso-fondo { position: absolute; inset: -4%; z-index: -2; background: #1d1810 url("excavadora-720.jpg") center 40% / cover no-repeat;
+  background-image: image-set(url("excavadora-720.webp") type("image/webp"), url("excavadora-720.jpg") type("image/jpeg"));
   transform: translate3d(var(--fx, 0), var(--fy, 0), 0) scale(1.08); transition: transform .6s cubic-bezier(.2, .7, .2, 1);
-  animation: entraFondo 1.6s cubic-bezier(.2, .7, .2, 1) both; }
+  animation: entraFondo 1.4s cubic-bezier(.2, .7, .2, 1) both; }
+@media (min-width: 900px) { .ingreso-fondo { background-image: image-set(url("excavadora-1200.webp") type("image/webp"), url("excavadora-1200.jpg") type("image/jpeg")); } }
 .ingreso::before { content: ""; position: absolute; inset: 0; z-index: -1;
   background: radial-gradient(120% 80% at 30% 30%, rgba(10, 10, 11, .1), rgba(10, 10, 11, .75) 70%),
               linear-gradient(180deg, rgba(10, 10, 11, .55) 0%, rgba(10, 10, 11, .15) 30%, rgba(10, 10, 11, .9) 62%, var(--fondo) 100%); }
-@keyframes entraFondo { from { transform: scale(1.25); filter: brightness(.3); } }
+@keyframes entraFondo { from { transform: scale(1.25); opacity: .3; } }
+body:has(.ingreso)::before { display: none; }  /* el ingreso tiene su propia imagen */
 .ingreso .cab-ingreso { animation: subeTexto .9s .15s cubic-bezier(.2, .7, .2, 1) both; }
 .ingreso .marca-ingreso { display: inline-flex; align-items: center; gap: 12px; }
 .ingreso .marca-ingreso i { width: 40px; height: 40px; border-radius: 11px; flex: none;
@@ -378,8 +393,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .66); backdrop-filter: blur(4px); -
 .ingreso .lema { color: #DAD5CA; margin: 12px 0 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
 .ingreso .lema::before { content: ""; width: 26px; height: 2px; background: var(--acento); flex: none; }
 .ingreso .tarjeta.acceso-3d { padding: 22px 20px; border-radius: 26px; transform-style: preserve-3d;
-  background: linear-gradient(165deg, rgba(30, 30, 35, .86), rgba(16, 16, 19, .92));
-  backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: linear-gradient(165deg, rgba(30, 30, 35, .93), rgba(16, 16, 19, .96));
   border: 1px solid rgba(255, 255, 255, .14);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 1px 0 rgba(0, 0, 0, .8), 0 40px 80px -24px rgba(0, 0, 0, .95), 0 0 0 1px rgba(0, 0, 0, .5);
   transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform .5s cubic-bezier(.2, .7, .2, 1);
@@ -391,8 +405,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .66); backdrop-filter: blur(4px); -
 @keyframes entraTarjeta { from { opacity: 0; transform: translateY(60px) rotateX(24deg) scale(.94); } }
 @keyframes subeTexto { from { opacity: 0; transform: translateY(24px); } }
 .ingreso .descubre { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--texto); text-decoration: none; font-weight: 600;
-  font-size: 14px; padding: 10px 16px; border-radius: 999px; border: 1px solid var(--borde-2); background: rgba(20, 20, 23, .6); justify-self: center;
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); animation: subeTexto .9s .6s both; }
+  font-size: 14px; padding: 10px 16px; border-radius: 999px; border: 1px solid var(--borde-2); background: rgba(20, 20, 23, .85); justify-self: center;
+  animation: subeTexto .9s .6s both; }
 .ingreso .descubre b { color: var(--acento); }
 @media (min-width: 900px) {
   .ingreso { align-content: center; grid-template-columns: minmax(0, 1fr) 440px; column-gap: 64px; padding: 48px 6vw; }
@@ -403,6 +417,49 @@ dialog::backdrop { background: rgba(0, 0, 0, .66); backdrop-filter: blur(4px); -
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } .tarjeta.tocable, .ingreso .tarjeta.acceso-3d { transform: none !important; } }
+/* celulares de gama baja (2 GB de RAM o menos, detectado en app.js): sin animaciones ni sombras grandes */
+.ligero *, .ligero *::before, .ligero *::after { animation: none !important; transition: none !important; }
+.ligero .tarjeta, .ligero .kpi, .ligero .aviso, .ligero .opcion { box-shadow: 0 1px 0 rgba(0, 0, 0, .7), inset 0 1px 0 rgba(255, 255, 255, .05); }
+.ligero .ingreso .tarjeta.acceso-3d { transform: none; box-shadow: 0 1px 0 rgba(0, 0, 0, .7); }
+.ligero .ingreso .tarjeta.acceso-3d > * { transform: none; }
+
+/* ---------- cámara inteligente del parte (camara.js) */
+body.cam-abierta { overflow: hidden; }
+.cam { position: fixed; inset: 0; z-index: 200; background: #000; color: #fff; display: grid; overflow: hidden; }
+.cam-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* marco con forma de hoja A4; lo de afuera se oscurece con una sombra enorme (sin capas extra) */
+.cam-guia { position: absolute; left: 50%; top: calc(50% - 30px); transform: translate(-50%, -50%);
+  width: min(84vw, calc((100dvh - 250px) / 1.414)); aspect-ratio: 1 / 1.414; border-radius: 14px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); border: 2px solid rgba(255, 255, 255, .6); transition: border-color .2s; }
+.cam-guia i { position: absolute; width: 34px; height: 34px; border: 5px solid #fff; transition: border-color .2s; }
+.cam-guia i:nth-child(1) { left: -5px; top: -5px; border-right: 0; border-bottom: 0; border-radius: 14px 0 0 0; }
+.cam-guia i:nth-child(2) { right: -5px; top: -5px; border-left: 0; border-bottom: 0; border-radius: 0 14px 0 0; }
+.cam-guia i:nth-child(3) { left: -5px; bottom: -5px; border-right: 0; border-top: 0; border-radius: 0 0 0 14px; }
+.cam-guia i:nth-child(4) { right: -5px; bottom: -5px; border-left: 0; border-top: 0; border-radius: 0 0 14px 0; }
+.cam-casi .cam-guia, .cam-casi .cam-guia i { border-color: var(--acento); }
+.cam-ok .cam-guia, .cam-ok .cam-guia i { border-color: var(--ok); }
+.cam-arriba { position: absolute; left: 0; right: 0; top: 0; padding: calc(14px + env(safe-area-inset-top)) 16px 10px; text-align: center; display: grid; gap: 4px;
+  background: linear-gradient(rgba(0, 0, 0, .7), transparent); }
+.cam-arriba b { font-size: 15px; letter-spacing: .04em; color: var(--acento); }
+.cam-pista { font-size: 17px; font-weight: 700; text-shadow: 0 1px 4px #000; }
+.cam-abajo { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 24px calc(56px + env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; background: linear-gradient(transparent, rgba(0, 0, 0, .75)); }
+.cam-btn { width: 52px; height: 52px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .5); color: #fff;
+  display: grid; place-items: center; cursor: pointer; justify-self: start; }
+.cam-btn[data-c="luz"] { justify-self: end; }
+.cam-btn[aria-pressed="true"] { background: var(--acento); color: var(--acento-texto); }
+.cam-btn svg { width: 24px; height: 24px; }
+/* disparador: el anillo se llena mientras la foto automática se prepara */
+.cam-disparo { --avance: 0; width: 82px; height: 82px; border-radius: 50%; border: 0; padding: 6px; cursor: pointer;
+  background: conic-gradient(var(--ok) calc(var(--avance) * 360deg), rgba(255, 255, 255, .85) 0); }
+.cam-disparo span { display: block; width: 100%; height: 100%; border-radius: 50%; background: #fff; border: 4px solid #000; }
+.cam-disparo:active span { transform: scale(.92); }
+.cam-opciones { position: absolute; left: 0; right: 0; bottom: calc(10px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 12px; }
+.cam-opciones button { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .55); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cam-auto[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
+.cam-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.cam-disparo-ok .cam-flash { animation: camFlash .25s ease-out; }
+@keyframes camFlash { 0% { opacity: .9; } 100% { opacity: 0; } }
 
 /* ojito para ver la clave */
 .clave-caja { position: relative; display: block; }

@@ -161,7 +161,10 @@
   // ------------------------------------------------------------ relieve 3D
   // Las tarjetas que se tocan se inclinan hacia el mouse (solo con mouse: en el celular no estorba al desplazar).
   // En el ingreso, la tarjeta y la máquina del fondo siguen al mouse o a la inclinación del celular (Android).
-  var sinMovimiento = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // celular de gama baja (2 GB de RAM o menos, o 4 núcleos o menos sin dato de memoria): modo ligero
+  var ligero = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (!navigator.deviceMemory && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+  if (ligero) document.documentElement.classList.add('ligero');
+  var sinMovimiento = ligero || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (!sinMovimiento) {
     document.addEventListener('pointermove', function (e) {
       if (e.pointerType !== 'mouse') return;
@@ -1035,8 +1038,9 @@
    * Reduce la foto, le pone sello (AXION · parte · fecha) y la devuelve en JPEG.
    * El parte de papel y los instrumentos se guardan con más detalle para que la IA lea la letra y los dígitos.
    */
-  var CALIDAD_FOTO = { PARTE_FISICO_FIRMADO: [2000, 0.82], HOROMETRO_INICIAL: [1600, 0.75], HOROMETRO_FINAL: [1600, 0.75],
-    ODOMETRO_INICIAL: [1600, 0.75], ODOMETRO_FINAL: [1600, 0.75], HOROMETRO_ABASTECIMIENTO: [1600, 0.75], CANTIDAD_ABASTECIDA: [1600, 0.75] };
+  // 1600 px alcanzan para que la IA lea letra y dígitos; la foto pesa ~40 % menos que a 2000 px: sube y se lee más rápido
+  var CALIDAD_FOTO = { PARTE_FISICO_FIRMADO: [1600, 0.78], HOROMETRO_INICIAL: [1280, 0.74], HOROMETRO_FINAL: [1280, 0.74],
+    ODOMETRO_INICIAL: [1280, 0.74], ODOMETRO_FINAL: [1280, 0.74], HOROMETRO_ABASTECIMIENTO: [1280, 0.74], CANTIDAD_ABASTECIDA: [1280, 0.74] };
   function comprimir(file, sello, tipo) {
     var cal = CALIDAD_FOTO[tipo] || [1280, 0.6];
     var cargar = function () {
@@ -3231,11 +3235,24 @@
       if (b.dataset.reemplazar) fotoMeta.reemplazar = N.hijos('EVIDENCIAS', b.dataset.id).filter(function (e) {
         return e.TipoEvidencia === b.dataset.tipo && (!b.dataset.abast || e.AbastecimientoID === b.dataset.abast);
       }).map(function (e) { return e.EvidenciaID; });
-      // si el sistema cierra la app al abrir la cámara (pasa en Android con poca memoria), al volver se avisa
-      try { sessionStorage.setItem('axion_foto_pend', JSON.stringify({ meta: fotoMeta, hash: location.hash, t: Date.now() })); } catch (x) { /* nada */ }
-      var inp = document.getElementById(b.dataset.modo === 'galeria' ? 'galeria' : 'camara');
-      inp.value = '';
-      inp.click();
+      var meta = fotoMeta, modo = b.dataset.modo;
+      var nativa = function () {
+        fotoMeta = meta;
+        // si el sistema cierra la app al abrir la cámara (pasa en Android con poca memoria), al volver se avisa
+        try { sessionStorage.setItem('axion_foto_pend', JSON.stringify({ meta: fotoMeta, hash: location.hash, t: Date.now() })); } catch (x) { /* nada */ }
+        var inp = document.getElementById(modo === 'galeria' ? 'galeria' : 'camara');
+        inp.value = '';
+        inp.click();
+      };
+      // parte de papel: cámara dentro de la app con marco; la foto se toma sola cuando el parte está encuadrado y enfocado
+      if (modo !== 'galeria' && b.dataset.tipo === 'PARTE_FISICO_FIRMADO' && window.Camara && Camara.disponible()) {
+        Camara.abrir({ titulo: 'Foto del parte de papel' }).then(function (r) {
+          if (r === 'NATIVA') return nativa();
+          if (r) procesarFoto(r, meta);
+        }, nativa);
+        return;
+      }
+      nativa();
     },
     verFoto: function (b) {
       var id = b.dataset.k;
@@ -3336,7 +3353,9 @@
     var file = e.target.files && e.target.files[0];
     try { sessionStorage.removeItem('axion_foto_pend'); } catch (x) { /* nada */ }
     if (!file || !fotoMeta) return;
-    var meta = fotoMeta;
+    procesarFoto(file, fotoMeta);
+  }
+  function procesarFoto(file, meta) {
     var p = getParte(meta.ParteID);
     if (!p) { toast('El parte ya no está en este celular. Vuelva a abrirlo y tome la foto otra vez.'); return; }
     var sello = 'AXION · ' + (p.CodigoParte || '') + ' · ' + fF(R.enLima(Date.now()).fecha) + ' ' + R.enLima(Date.now()).hora;

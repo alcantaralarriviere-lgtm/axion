@@ -9,9 +9,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icono-192.png">
   <link rel="apple-touch-icon" href="icono-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+  <!-- sin fuentes externas: la app abre al instante aun con poca señal (usa la letra del celular) -->
+  <link rel="preload" as="image" href="fondo-movil.webp" type="image/webp">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -23,6 +22,7 @@
   <script src="config.js"></script>
   <script src="reglas.js"></script>
   <script src="nucleo.js"></script>
+  <script src="camara.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
