@@ -158,10 +158,63 @@
   function obsCount() { return N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'OBSERVADO' && p.OperadorID === perfil().OperadorID; }).length; }
   function porRevisarCount() { return N.filas('PARTES_DIARIOS', function (p) { return p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO'; }).length; }
 
+  // ------------------------------------------------------------ relieve 3D
+  // Las tarjetas que se tocan se inclinan hacia el mouse (solo con mouse: en el celular no estorba al desplazar).
+  // En el ingreso, la tarjeta y la máquina del fondo siguen al mouse o a la inclinación del celular (Android).
+  var sinMovimiento = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!sinMovimiento) {
+    document.addEventListener('pointermove', function (e) {
+      if (e.pointerType !== 'mouse') return;
+      var t = e.target.closest && e.target.closest('.tarjeta.tocable');
+      if (relieveActual && relieveActual !== t) { relieveActual.style.removeProperty('--rx'); relieveActual.style.removeProperty('--ry'); }
+      relieveActual = t;
+      if (!t) return;
+      var r = t.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      t.style.setProperty('--rx', ((.5 - y) * 6).toFixed(2) + 'deg');
+      t.style.setProperty('--ry', ((x - .5) * 8).toFixed(2) + 'deg');
+      t.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+      t.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+    }, { passive: true });
+  }
+  var relieveActual = null;
+  function relieveIngreso() {
+    if (sinMovimiento) return;
+    var m = document.querySelector('.ingreso');
+    if (!m) return;
+    var tarjeta = m.querySelector('.acceso-3d'), fondo = m.querySelector('.ingreso-fondo');
+    var mover = function (nx, ny) {  // nx, ny entre -1 y 1
+      if (!document.body.contains(m)) return;
+      tarjeta.style.setProperty('--rx', (-ny * 5).toFixed(2) + 'deg');
+      tarjeta.style.setProperty('--ry', (nx * 7).toFixed(2) + 'deg');
+      fondo.style.setProperty('--fx', (-nx * 18).toFixed(1) + 'px');
+      fondo.style.setProperty('--fy', (-ny * 12).toFixed(1) + 'px');
+    };
+    // no inclinar mientras escribe: el teclado del celular ya mueve la pantalla
+    var escribiendo = false;
+    m.addEventListener('focusin', function () { escribiendo = true; mover(0, 0); });
+    m.addEventListener('focusout', function () { escribiendo = false; });
+    m.addEventListener('pointermove', function (e) {
+      if (e.pointerType !== 'mouse' || escribiendo) return;
+      mover(e.clientX / window.innerWidth * 2 - 1, e.clientY / window.innerHeight * 2 - 1);
+    });
+    if (!relieveIngreso.giro && window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission !== 'function') {
+      relieveIngreso.giro = true;
+      window.addEventListener('deviceorientation', function (e) {
+        var mm = document.querySelector('.ingreso');
+        if (!mm || escribiendo || e.gamma === null) return;
+        var t = mm.querySelector('.acceso-3d'), f = mm.querySelector('.ingreso-fondo');
+        var nx = Math.max(-1, Math.min(1, e.gamma / 25)), ny = Math.max(-1, Math.min(1, (e.beta - 45) / 25));
+        t.style.setProperty('--rx', (-ny * 4).toFixed(2) + 'deg'); t.style.setProperty('--ry', (nx * 5).toFixed(2) + 'deg');
+        f.style.setProperty('--fx', (-nx * 14).toFixed(1) + 'px'); f.style.setProperty('--fy', (-ny * 10).toFixed(1) + 'px');
+      });
+    }
+  }
+
   // ------------------------------------------------------------ ingreso
   function vIngreso(msg) {
-    app.innerHTML = '<main class="ingreso"><div><div class="logo">AXION</div><p class="lema">Partes diarios y control de maquinaria</p></div>' +
-      '<form class="tarjeta" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
+    app.innerHTML = '<main class="ingreso"><div class="ingreso-fondo" aria-hidden="true"></div>' +
+      '<div class="cab-ingreso"><div class="marca-ingreso"><i aria-hidden="true"></i><div class="logo">AXION</div></div><p class="lema">Partes diarios y control de maquinaria</p></div>' +
+      '<form class="tarjeta acceso-3d" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
       '<h2>Ingresar</h2>' +
       '<label class="campo"><span>Número de celular</span><input name="email" type="text" autocomplete="username" inputmode="tel" required placeholder="9XX XXX XXX" value="' + esc(ultimoUsuario()) + '">' +
       '<span class="ayuda">El administrador ingresa con su correo.</span></label>' +
@@ -170,7 +223,8 @@
       (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
       '<button class="btn primario ancho" type="submit">Ingresar</button>' +
       '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form>' +
-      '<p class="mini" style="text-align:center"><a href="descubre.html">Conozca cómo funciona AXION →</a></p></main>';
+      '<a class="descubre" href="descubre.html">Conozca cómo funciona AXION <b aria-hidden="true">→</b></a></main>';
+    relieveIngreso();
     document.getElementById('fIngreso').onsubmit = function (e) {
       e.preventDefault();
       var f = new FormData(e.target);
