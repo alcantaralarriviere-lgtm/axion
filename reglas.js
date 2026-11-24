@@ -291,7 +291,9 @@ var Reglas = (function () {
     // Solo detienen el envío la foto, las lecturas y el frente.
     var faltan = [];
     var conFoto = evid.some(function (e) { return e.ParteID === p.ParteID && e.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && !e._error; });
-    faltan = faltan.concat(lecturas(p, equipo, cfg, true).errores);
+    // con la foto del parte se puede enviar YA: la IA (en el servidor) completa las lecturas aunque el parte ya esté enviado.
+    // Solo bloquea una lectura imposible (negativa o final menor que la inicial).
+    faltan = faltan.concat(lecturas(p, equipo, cfg, !conFoto).errores);
     if (vacio(p.FrenteID)) faltan.push('Falta el frente.');
     if (!acts.length && !conFoto) faltan.push('Tome la foto del parte de papel o registre una actividad.');
     fotosFaltantes(p, equipo, evid, fallas, abast, cfg).forEach(function (x) { faltan.push('Falta foto: ' + x + '.'); });

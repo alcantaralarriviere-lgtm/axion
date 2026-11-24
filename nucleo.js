@@ -349,7 +349,10 @@ var Nucleo = (function () {
       return leerFoto(f.ref).then(function (dataURL) {
         var b64 = String(dataURL || '').split(',')[1] || '';
         // fotos que lee la IA: el servidor las lee en el mismo pedido de subida (un viaje menos)
-        var conIA = iaLista() && IA_TIPOS.indexOf(f.fila.TipoEvidencia) >= 0;
+        // ...pero si hay más fotos esperando (varios partes seguidos), se sube rápido y la IA se pide aparte, en paralelo:
+        // así la cola no espera la lectura de cada foto
+        var masFotos = S.outbox.some(function (x) { return x !== f && x.op === 'foto'; });
+        var conIA = iaLista() && IA_TIPOS.indexOf(f.fila.TipoEvidencia) >= 0 && !masFotos;
         if (conIA) ia[f.ref] = { estado: 'leyendo', t: Date.now() };
         return api('subirFoto', Object.assign({}, f.fila, { base64: b64, mime: 'image/jpeg', leerIA: conIA }));
       }).then(function (r) {

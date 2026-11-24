@@ -748,6 +748,7 @@
       '</div>' + (foto || hayDatos ? '</details>' : '</div>') +
       // 4) lo que falta, en rojo (recién cuando la IA terminó: antes no se le pide nada al operador), y el botón de enviar
       (iaTermino ? listaHallazgos(hs.filter(function (x) { return x.estado !== 'DUDOSO'; })) : '') +
+      (foto && !iaTermino && r.ok ? '<div class="aviso acento">' + ic('send') + '<div><strong>Ya puede enviarlo.</strong> No necesita esperar: la IA terminará de llenar el parte sola.</div></div>' : '') +
       (r.ok || !iaTermino ? '' : '<div class="aviso peligro">' + ic('alert') + '<div><strong>Falta para enviar:</strong><ul>' + r.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><div class="sub">Toque "Completar lo que falta".</div></div></div>') +
       '<button type="button" class="btn primario ancho enorme" data-a="enviar" data-id="' + id + '"' + (r.ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'ENVIAR PARTE') + '</button>' +
       (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div></div></div>' : '') +
@@ -3176,8 +3177,14 @@
       confirmar(acc === 'ENVIAR' ? 'Enviar parte' : 'Enviar corrección', 'Después de enviar ya no podrá modificarlo, salvo que el supervisor lo observe.', 'Enviar').then(function (si) {
         if (!si) return;
         N.accion(p, acc, '');
-        toast(navigator.onLine ? 'Enviando…' : 'Guardado. Se enviará cuando haya señal.');
-        location.hash = '#/parte/' + p.ParteID;
+        if (rol() === 'OPERADOR') {
+          // el operador no espera a la IA ni a la subida: vuelve a Inicio y la app termina sola
+          toast(navigator.onLine ? 'Listo, parte enviado. La IA lo termina de llenar sola.' : 'Listo. Se enviará solo cuando haya señal.');
+          location.hash = '#/inicio';
+        } else {
+          toast(navigator.onLine ? 'Enviando…' : 'Guardado. Se enviará cuando haya señal.');
+          location.hash = '#/parte/' + p.ParteID;
+        }
       });
     },
     actForm: function (b) { formActividad(b.dataset.id, b.dataset.k); },
