@@ -348,13 +348,22 @@ var Nucleo = (function () {
       f.enviando = true;
       return leerFoto(f.ref).then(function (dataURL) {
         var b64 = String(dataURL || '').split(',')[1] || '';
-        return api('subirFoto', Object.assign({}, f.fila, { base64: b64, mime: 'image/jpeg' }));
+        // fotos que lee la IA: el servidor las lee en el mismo pedido de subida (un viaje menos)
+        var conIA = iaLista() && IA_TIPOS.indexOf(f.fila.TipoEvidencia) >= 0;
+        if (conIA) ia[f.ref] = { estado: 'leyendo', t: Date.now() };
+        return api('subirFoto', Object.assign({}, f.fila, { base64: b64, mime: 'image/jpeg', leerIA: conIA }));
       }).then(function (r) {
         S.outbox = S.outbox.filter(function (x) { return x !== f; });
         aplicarServidor('EVIDENCIAS', r.fila);
-        if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) leerIA(r.fila.EvidenciaID);  // en paralelo, no frena la cola
+        var evId = r.fila.EvidenciaID;
+        if (r.lectura) { delete ia[evId]; aplicarServidor('LECTURAS_IA', r.lectura); }
+        else if (r.iaError && (r.iaError.codigo === 'IA_LIMITE' || r.iaError.codigo === 'IA_ERROR' || r.iaError.codigo === 'IA_OFF')) {
+          ia[evId] = { estado: 'error', msg: r.iaError.msg, codigo: r.iaError.codigo, t: Date.now() };
+          if (r.iaError.codigo === 'IA_ERROR') descargar(false).catch(function () {});
+        } else if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) { delete ia[evId]; leerIA(evId); }  // respaldo: pedido aparte
       }, function (e) {
         f.enviando = false;
+        if (ia[f.ref] && ia[f.ref].estado === 'leyendo') delete ia[f.ref];  // la subida se reintentará; la lectura va con ella
         if (REINTENTABLE.indexOf(e.codigo) >= 0) throw e;
         // el parte todavía está en camino (su envío espera en la cola): la foto espera, no se descarta
         if (e.codigo === 'NO_EXISTE' && S.outbox.some(function (x) { return x.op === 'guardar' && x.tabla === 'PARTES_DIARIOS' && x.ref === f.parte; })) {
