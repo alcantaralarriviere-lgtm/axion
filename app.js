@@ -97,7 +97,8 @@
     var nav = '';
     if (!op.sinNav) {
       var items = rol() === 'OPERADOR'
-        ? [['#/inicio', 'home', 'Inicio'], ['#/parte/nuevo', 'plus', 'Nuevo parte'], ['#/partes', 'list', 'Mis partes', obsCount()], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]
+        // sin "Nuevo parte": en Inicio se toca el equipo y el parte se abre solo
+        ? [['#/inicio', 'home', 'Inicio'], ['#/partes', 'list', 'Mis partes', obsCount()], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]
         : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros']]
           .concat(rol() === 'ADMIN' ? [['#/admin', 'users', 'Administrar']] : []).concat([['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]);
       var actual = location.hash.split('/').slice(0, 2).join('/');
@@ -231,7 +232,7 @@
     document.getElementById('fIngreso').onsubmit = function (e) {
       e.preventDefault();
       var f = new FormData(e.target);
-      var b = e.target.querySelector('button');
+      var b = e.target.querySelector('button[type="submit"]');  // no el ojito de la contraseña
       b.disabled = true; b.textContent = 'Ingresando…';
       var usuario = String(f.get('email')).trim();
       try { localStorage.setItem('axion_usuario', usuario); } catch (x) { /* sin almacenamiento */ }
@@ -442,7 +443,7 @@
     marco('Mis partes', l.length ? grupos.map(function (g) {
       var x = l.filter(g[1]);
       return x.length ? '<div class="etiqueta-seccion">' + g[0] + ' (' + x.length + ')</div><div class="lista">' + x.map(tarjetaParte).join('') + '</div>' : '';
-    }).join('') : '<div class="vacio">' + ic('file') + '<p>Aún no tiene partes.</p><a class="btn primario" href="#/parte/nuevo">' + ic('plus') + 'Nuevo parte</a></div>');
+    }).join('') : '<div class="vacio">' + ic('file') + '<p>Aún no tiene partes.</p><a class="btn primario" href="#/inicio">' + ic('plus') + 'Hacer mi parte</a></div>');
   }
 
   // ------------------------------------------------------------ asistente de 8 pasos
@@ -660,6 +661,7 @@
       '<button type="button" class="btn ancho" data-a="abastForm" data-id="' + p.ParteID + '">' + ic('fuel') + 'Registrar abastecimiento</button>';
   }
 
+  var corregirAbierto = {};  // por parte: si el operador abrió "Corregir"
   // ------------------------------------------------------------ parte en 1 pantalla (predeterminado)
   // El operador toma la foto del parte de papel, la IA llena todo sola y él solo corrige lo marcado en rojo.
   function vUno(id) {
@@ -688,23 +690,42 @@
     var l = R.lecturas(p, eq, cfg(), false);
     var r = puedeEnviar(p);
     var hs = hallazgosIA(p);
+    // El operador NO escribe: foto → la IA llena → enviar. Corregir queda plegado y solo se abre solo si falta algo.
+    var leyendo = foto && est && est.estado === 'leyendo';
+    var iaTermino = !!(foto && foto._srv && !leyendo && (lp || (est && est.estado === 'error') || (N.lecturaDe(foto.EvidenciaID) || {}).Estado === 'ERROR'));
+    if (corregirAbierto[id] === undefined && iaTermino && !r.ok) corregirAbierto[id] = true;
+    var hayDatos = lect.some(function (x) { return R.num(p[x[0]]) !== null; }) || acts.length || abs.length || fs.length || vs.length;
+    // resumen de solo lectura: lo que quedó registrado (sin cajas para escribir)
+    var val = function (v, suf) { return R.num(v) !== null ? n1(v) + (suf || '') : '—'; };
+    var resumen = '<div class="tarjeta uno-lista">' +
+      (eq.TieneHorometro ? '<div class="fila-dato"><span>Horómetro</span><span class="num">' + val(p.HorometroInicial) + ' → ' + val(p.HorometroFinal) + (R.num(p.HorasTrabajadas) !== null ? ' · <b>' + n1(p.HorasTrabajadas) + ' h</b>' : '') + '</span></div>' : '') +
+      (eq.TieneOdometro ? '<div class="fila-dato"><span>Kilómetros</span><span class="num">' + val(p.OdometroInicial) + ' → ' + val(p.OdometroFinal) + (R.num(p.KmRecorridos) !== null ? ' · <b>' + n1(p.KmRecorridos) + ' km</b>' : '') + '</span></div>' : '') +
+      '<div class="fila-dato"><span>Actividades</span><span>' + (acts.length ? acts.map(function (a) { return esc(a.Descripcion || (catAct()[a.ActividadCatID] || {}).Nombre || ''); }).join(' · ') : '—') + '</span></div>' +
+      (conViajes ? '<div class="fila-dato"><span>Viajes</span><span>' + vs.length + '</span></div>' : '') +
+      '<div class="fila-dato"><span>Combustible</span><span>' + (abs.length ? abs.map(function (x) { return n1(x.Galones) + ' gal'; }).join(' + ') : p.SinAbastecimiento === true ? 'No hubo' : '—') + '</span></div>' +
+      (fs.length ? '<div class="fila-dato"><span>Fallas</span><span>' + fs.length + '</span></div>' : '') + '</div>';
     // si el servidor rechazó el borrador (p. ej. ya había un parte ese día y turno), decirlo arriba y con claridad
     var h = (p._error ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>El servidor no aceptó este parte:</strong> ' + esc(p._error) +
-      '<div class="sub">Cambie abajo el turno o la fecha, o elimine este borrador. La foto se subirá cuando el parte sea aceptado.</div></div></div>' : '') +
+      '<div class="sub">Cambie el turno o la fecha (toque "Cambiar fecha o turno"), o elimine este borrador. La foto se subirá cuando el parte sea aceptado.</div></div></div>' : '') +
       '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(eq.CodigoInterno) + ' · ' + esc(eq.Familia) + '</h3>' +
       '<div class="mini">' + fF(p.FechaTrabajo) + ' · ' + esc(t.Nombre || p.Turno) + '</div></div><a class="btn chico" href="#/parte/' + id + '/rapido/1">Cambiar equipo</a></div>' +
-      // fecha y turno se corrigen aquí mismo, sin pasos
+      // fecha y turno ya se eligieron en Inicio: se cambian solo si hace falta
+      '<details class="historial-mas"' + (p._error ? ' open' : '') + '><summary class="mini" style="text-align:center;text-decoration:underline">Cambiar fecha o turno</summary>' +
       '<div class="tarjeta" style="display:grid;gap:10px"><div class="dos">' + ['DIA', 'NOCHE'].map(function (x) {
         return '<button type="button" class="btn ' + (p.Turno === x ? 'primario' : '') + '" data-a="unoTurno" data-id="' + id + '" data-v="' + x + '" aria-pressed="' + (p.Turno === x) + '">' + ic(x === 'DIA' ? 'sun' : 'moon') + (x === 'DIA' ? 'Turno DÍA' : 'Turno NOCHE') + '</button>';
-      }).join('') + '</div><label class="campo"><span>Fecha del parte</span><input id="unoFecha" type="date" value="' + esc(p.FechaTrabajo) + '" min="' + R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2)) + '" max="' + hoy() + '"></label></div>' +
+      }).join('') + '</div><label class="campo"><span>Fecha del parte</span><input id="unoFecha" type="date" value="' + esc(p.FechaTrabajo) + '" min="' + R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2)) + '" max="' + hoy() + '"></label></div></details>' +
       // 1) la foto del parte de papel
       (foto ? '<div class="uno-foto ok">' + botonFoto(p, 'PARTE_FISICO_FIRMADO', 'Foto del parte de papel') + '</div>'
-        : '<div class="uno-foto"><strong style="font-size:18px">Tómele foto a su parte de papel</strong><span class="sub">La IA llenará todo por usted.</span>' +
+        : '<div class="uno-foto"><strong style="font-size:19px">Tómele foto a su parte de papel</strong><span class="sub">No escriba nada: la IA llenará el parte por usted.</span>' +
           '<button type="button" class="btn primario enorme" data-a="foto" data-id="' + id + '" data-tipo="PARTE_FISICO_FIRMADO">' + ic('camera') + 'Tomar foto</button>' +
           '<button type="button" class="btn chico" data-a="foto" data-modo="galeria" data-id="' + id + '" data-tipo="PARTE_FISICO_FIRMADO">' + ic('image') + 'Elegir de la galería</button></div>') +
       estado +
-      // 2) lo que quedó registrado (se puede corregir aquí mismo)
-      '<div class="etiqueta-seccion">Datos del parte</div><div class="tarjeta uno-lista">' +
+      // 2) lo que leyó la IA, solo para mirar
+      (foto || hayDatos ? '<div class="etiqueta-seccion">Lo que quedó en el parte</div>' + resumen : '') +
+      // 3) corregir: plegado (solo si la IA se equivocó o falta algo)
+      (foto || hayDatos ? '<details class="historial-mas" id="unoCorregir" data-id="' + id + '"' + (corregirAbierto[id] ? ' open' : '') + '>' +
+        '<summary class="btn chico ancho">' + ic('edit') + (r.ok ? 'Corregir algo (solo si la IA se equivocó)' : 'Completar lo que falta') + '</summary>' +
+        '<div class="tarjeta uno-lista">' : '<div hidden><div class="tarjeta uno-lista">') +
       '<div class="dos">' + lect.map(function (x) {
         return '<label class="campo"><span>' + x[1] + '</span><input name="' + x[0] + '" type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(p[x[0]]) + '" data-a2="lectura"></label>';
       }).join('') + '</div>' +
@@ -724,15 +745,17 @@
       '<div class="fila-dato"><span>Fallas</span><span>' + fs.length + '</span></div>' +
       '<button type="button" class="btn chico" data-a="fallaForm" data-id="' + id + '">' + ic('wrench') + '¿Hubo una falla? Repórtela</button>' +
       (fs.length ? '<div class="lista">' + fs.map(function (f) { return botonFoto(p, 'FALLA', 'Foto de la falla: ' + f.Componente, { FallaID: f.FallaID }); }).join('') + '</div>' : '') +
-      '</div>' +
-      // 3) lo que falta, en rojo, y el botón de enviar
-      listaHallazgos(hs.filter(function (x) { return x.estado !== 'DUDOSO'; })) +
-      (r.ok ? '' : '<div class="aviso peligro">' + ic('alert') + '<div><strong>Falta para enviar:</strong><ul>' + r.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>') +
+      '</div>' + (foto || hayDatos ? '</details>' : '</div>') +
+      // 4) lo que falta, en rojo (recién cuando la IA terminó: antes no se le pide nada al operador), y el botón de enviar
+      (iaTermino ? listaHallazgos(hs.filter(function (x) { return x.estado !== 'DUDOSO'; })) : '') +
+      (r.ok || !iaTermino ? '' : '<div class="aviso peligro">' + ic('alert') + '<div><strong>Falta para enviar:</strong><ul>' + r.faltan.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><div class="sub">Toque "Completar lo que falta".</div></div></div>') +
       '<button type="button" class="btn primario ancho enorme" data-a="enviar" data-id="' + id + '"' + (r.ok ? '' : ' disabled') + '>' + ic('send') + (p.Estado === 'OBSERVADO' ? 'Enviar corrección' : 'ENVIAR PARTE') + '</button>' +
       (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div></div></div>' : '') +
-      '<p class="mini" style="text-align:center"><a href="#/parte/' + id + '/paso/4" data-a="detallado">Modo detallado</a> · ' + botonBorrarParte(p).replace('btn peligro ancho', 'btn chico fantasma') + '</p>';
+      '<p class="mini" style="text-align:center">' + botonBorrarParte(p).replace('btn peligro ancho', 'btn chico fantasma') + '</p>';
     marco(p.CodigoParte || 'Parte', '<form id="fUno" novalidate style="display:grid;gap:14px">' + h + '</form>', { volver: '#/inicio' });
     var f = document.getElementById('fUno');
+    var dc = document.getElementById('unoCorregir');
+    if (dc) dc.addEventListener('toggle', function () { corregirAbierto[id] = dc.open; });  // se recuerda al redibujar
     f.onchange = function (e) {
       if (e.target.id === 'unoFecha') { var err = cambiarFechaTurno(id, e.target.value, null); if (err) { toast(err); e.target.value = getParte(id).FechaTrabajo; } else { toast('Fecha cambiada'); render(); } return; }
       if (e.target.dataset.a2 === 'lectura') guardarLecturasUno(id);

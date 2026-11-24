@@ -10,7 +10,7 @@
   'use strict';
   var ANCHO_A = 96, ALTO_A = 136;          // tamaño de la copia que se analiza (proporción A4)
   var TICK = 160;                           // ms entre análisis
-  var NECESARIOS = 5;                       // análisis buenos seguidos para disparar (~0,8 s)
+  var NECESARIOS = 4;                       // análisis buenos seguidos para disparar (~0,65 s)
 
   function disponible() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext !== false);
@@ -138,8 +138,9 @@
         else if (mov > 6) pista2 = 'Mantenga el celular quieto';
         else if (nit < 40 || nit < maxNit * 0.8) pista2 = 'Enfocando…';
         else { ok = true; pista2 = auto ? '¡Quieto! Tomando la foto…' : 'Listo: toque el botón para tomar la foto'; }
-        if (Date.now() - inicio < 1200 && ok) { ok = false; pista2 = 'Enfocando…'; }  // la cámara recién abrió
+        if (Date.now() - inicio < 900 && ok) { ok = false; pista2 = 'Enfocando…'; }  // la cámara recién abrió
         buenos = ok ? buenos + 1 : 0;
+        raiz.dataset.medida = 'luz ' + p90 + ' · papel ' + Math.round(cobertura * 100) + '% · mov ' + mov.toFixed(1) + ' · nitidez ' + Math.round(nit) + '/' + Math.round(maxNit);  // diagnóstico
         raiz.classList.toggle('cam-ok', ok);
         raiz.classList.toggle('cam-casi', !ok && cobertura >= 0.78 && p90 >= 70);
         if (pistaTxt.textContent !== pista2) pistaTxt.textContent = pista2;
