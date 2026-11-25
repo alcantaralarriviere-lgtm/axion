@@ -237,8 +237,8 @@ var Nucleo = (function () {
     programar(800);
   }
 
-  function accion(parte, acc, comentario) {
-    var r = { RevisionID: nuevoID('REV'), ParteID: parte.ParteID, Accion: acc, Comentario: comentario || '',
+  function accion(parte, acc, comentario, masivo) {
+    var r = { RevisionID: nuevoID('REV'), ParteID: parte.ParteID, Accion: acc, Comentario: comentario || '', Masivo: masivo === true,
       VersionParte: Number(parte.Version || 0), FechaHoraDispositivo: Reglas.isoLima(Date.now()),
       Usuario: S.perfil.Email, Rol: S.perfil.Rol, EstadoAnterior: parte.Estado, _pend: true };
     S.t.REVISIONES[r.RevisionID] = r;

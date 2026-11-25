@@ -1505,6 +1505,35 @@
   }
 
   // ------------------------------------------------------------ supervisor / administrador
+  /** Partes de la lista que este usuario puede aprobar ahora (nunca los propios; el supervisor no los que tienen excepción sin aceptar). */
+  function aprobables(l) {
+    var yo = perfil() || {};
+    return l.filter(function (p) {
+      if (!(p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO') || p._pend) return false;
+      if (yo.OperadorID && p.OperadorID === yo.OperadorID) return false;
+      if (rol() !== 'ADMIN' && p.ExcepcionLectura === true && !p.ExcepcionAutorizadaPor) return false;
+      return !N.filas('REVISIONES', function (r) { return r.ParteID === p.ParteID && r.Accion === 'APROBAR' && r._pend; }).length;
+    });
+  }
+  /** Lista que se ve ahora en "Por revisar" (mismo filtro y búsqueda). */
+  function listaPorRevisar() {
+    return N.filas('PARTES_DIARIOS', function (p) { return (p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO') && coincide('revisar', textoParte(p)); });
+  }
+  function aprobarTodos() {
+    var l = aprobables(listaPorRevisar());
+    if (!l.length) { toast('No hay partes para aprobar.'); return; }
+    var conAvisos = l.filter(function (p) { return hallazgosIA(p).some(function (h) { return h.estado === 'INCONSISTENTE'; }); }).length;
+    var buscando = !!String(busq.revisar || '').trim();
+    confirmar('Aprobar todos', 'Se aprobarán ' + l.length + ' parte(s)' + (buscando ? ' (solo los de su búsqueda)' : '') + '. ' +
+      (conAvisos ? conAvisos + ' tienen avisos de la IA (el papel no calza con la fecha, turno, equipo u operador). ' : '') +
+      'Quedará registrado con su nombre y la hora del servidor.', 'Aprobar ' + l.length).then(function (si) {
+      if (!si) return;
+      l.forEach(function (p) { N.accion(p, 'APROBAR', '', true); });
+      toast(l.length + ' parte(s) aprobados. Se envían al servidor en segundo plano.');
+      render();
+    });
+  }
+
   function vRevisar() {
     var filtros = [['POR_REVISAR', 'Por revisar', function (p) { return p.Estado === 'PENDIENTE_REVISION' || p.Estado === 'CORREGIDO'; }],
       ['OBSERVADO', 'Observados', function (p) { return p.Estado === 'OBSERVADO'; }],
@@ -1529,6 +1558,9 @@
         return '<button type="button" data-a="filtro" data-v="' + x[0] + '" aria-pressed="' + (x[0] === f[0]) + '">' + x[1] + ' (' + N.filas('PARTES_DIARIOS', function (p) { return x[2](p) && pasa(p); }).length + ')</button>';
       }).join('') + '</div>' +
       (buscando ? '<p class="mini">' + l.length + ' resultado(s) en "' + esc(f[1]) + '". Para buscar en todos los partes elija "Todos".</p>' : '') +
+      // aprobar de una vez todos los que se ven en la lista (con búsqueda, solo los encontrados)
+      (f[0] === 'POR_REVISAR' && aprobables(l).length ? '<button type="button" class="btn primario ancho" data-a="aprobarTodos">' + ic('checkc') +
+        'Aprobar todos (' + aprobables(l).length + ')</button>' : '') +
       (l.length ? Object.keys(grupos).map(function (o) {
         return '<div class="etiqueta-seccion">' + esc(nombreObra(o)) + '</div><div class="lista">' + grupos[o].slice(0, buscando ? 400 : 150).map(function (p) {
           if (f[0] !== 'LISTOS') return tarjetaParte(p);
@@ -3302,6 +3334,7 @@
       }, function (e) { toast(e.message); });
     },
     flujo: function (b) { flujo(b.dataset.id, b.dataset.acc); },
+    aprobarTodos: function () { aprobarTodos(); },
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
