@@ -676,7 +676,9 @@
     var est = foto ? N.estadoIA(foto.EvidenciaID) : null;
     var lp = ultimaLecturaParte(id);
     var estado = !foto ? '' : est && est.estado === 'leyendo' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está leyendo su parte…</strong><div class="sub">Suele tardar de 10 a 40 segundos. Puede esperar aquí o seguir con otra cosa: el parte se llenará solo.</div></div></div>'
-      : !foto._srv ? '<div class="aviso">' + ic('cloudoff') + '<div>La foto se enviará cuando haya señal; luego la IA llenará el parte.</div></div>'
+      : !foto._srv ? (navigator.onLine
+        ? '<div class="aviso">' + ic('refresh') + '<div><strong>Subiendo la foto…</strong> Puede enviar el parte y salir: la app la termina de subir sola y la IA llenará el parte.</div></div>'
+        : '<div class="aviso">' + ic('cloudoff') + '<div>Sin señal: la foto se subirá sola cuando vuelva la señal; luego la IA llenará el parte.</div></div>')
       : est && est.estado === 'error' && est.codigo === 'IA_LIMITE' ? '<div class="aviso acento">' + ic('activity') + '<div><strong>La IA está llena por ahora (muchas fotos a la vez).</strong><div class="sub">La foto ya quedó guardada. El servidor la leerá solo más tarde y llenará el parte. No tiene que hacer nada más.</div><button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + foto.EvidenciaID + '">' + ic('refresh') + 'Reintentar ahora</button></div></div>'
       : (est && est.estado === 'error') || (N.lecturaDe(foto.EvidenciaID) || {}).Estado === 'ERROR' ? '<div class="aviso peligro">' + ic('alert') + '<div><strong>La IA no pudo leer la foto.</strong><div class="sub">' + esc((est && est.msg) || '') + '</div><button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + foto.EvidenciaID + '">' + ic('refresh') + 'Reintentar</button></div></div>'
       : lp ? '<div class="aviso">' + ic('checkc') + '<div><strong>La IA llenó el parte.</strong> Revise que esté bien. <a href="#/parte/' + id + '/ia">Ver lo que leyó</a></div></div>'
@@ -975,7 +977,7 @@
     var ultima = ev[ev.length - 1];
     return '<div class="foto-req' + (hecho ? ' ok' : '') + '" style="flex-wrap:wrap">' +
       (hecho ? '<button type="button" class="miniatura" data-a="verFoto" data-k="' + buenas[buenas.length - 1].EvidenciaID + '" data-foto="' + buenas[buenas.length - 1].EvidenciaID + '" aria-label="Ver la foto">' + ic('image') + '</button>' : ic('camera')) +
-      '<span class="crece">' + esc(texto) + (hecho ? ' · ' + (varias ? buenas.length + ' foto(s)' : 'lista') + (buenas.some(function (e) { return e._pend; }) ? ' (por enviar)' : '') : '') + '</span>' +
+      '<span class="crece">' + esc(texto) + (hecho ? ' · ' + (varias ? buenas.length + ' foto(s)' : 'lista') + (buenas.some(function (e) { return e._pend; }) ? (navigator.onLine ? ' (subiendo…)' : ' (por enviar)') : '') : '') + '</span>' +
       (puede ? '<button type="button" class="btn chico ' + (hecho ? '' : 'primario') + '" data-a="foto"' + datos + '>' + ic('camera') + (hecho ? (varias ? 'Otra' : 'Cambiar') : 'Cámara') + '</button>' +
         '<button type="button" class="btn chico" data-a="foto" data-modo="galeria"' + datos + ' aria-label="Elegir foto de la galería">' + ic('image') + 'Galería</button>' +
         (ultima ? '<button type="button" class="btn chico fantasma" data-a="borrarFoto" data-k="' + ultima.EvidenciaID + '" aria-label="Borrar la foto">' + ic('trash') + '</button>' : '') : '') +
@@ -992,7 +994,7 @@
       if (!p || !ev) return;
       el.innerHTML = lineaIA(p, ev, { AbastecimientoID: el.dataset.iaAbast });
       var t = el.parentNode.querySelector('.crece');
-      if (t && ev._srv) t.textContent = t.textContent.replace(' (por enviar)', '');
+      if (t && ev._srv) t.textContent = t.textContent.replace(' (por enviar)', '').replace(' (subiendo…)', '');
     });
   }
 
@@ -1010,7 +1012,7 @@
     var l = N.lecturaDe(ev.EvidenciaID);
     var linea = function (cls, html) { return '<div class="ia-linea ' + cls + '">' + ic('activity') + '<span class="crece">' + html + '</span></div>'; };
     if (est && est.estado === 'leyendo') return linea('', 'IA: leyendo la foto…');
-    if (!ev._srv) return linea('', 'IA: se leerá cuando la foto llegue al servidor.');
+    if (!ev._srv) return linea('', 'IA: leerá la foto apenas termine de subir.');
     if ((est && est.estado === 'error') || (l && l.Estado === 'ERROR')) {
       if (est && est.codigo === 'IA_LIMITE') return linea('alerta', 'IA llena por ahora (muchas fotos a la vez). <strong>La foto ya quedó guardada y el servidor la leerá solo más tarde.</strong> No tiene que hacer nada más.') +
         '<button type="button" class="btn chico" data-a="iaRepetir" data-ev="' + ev.EvidenciaID + '">' + ic('refresh') + 'Reintentar ahora</button>';

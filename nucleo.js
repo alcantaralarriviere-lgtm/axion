@@ -80,8 +80,10 @@ var Nucleo = (function () {
   // ------------------------------------------------------------ red
   // Google a veces pierde o demora la respuesta (la petición se queda colgada o llega el saludo del servidor
   // en vez de la respuesta): cada pedido tiene un tiempo máximo y se reintenta solo.
-  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 40000, subirFoto: 90000, leerFoto: 45000, estadoIA: 15000 };
-  var REINTENTOS = { leerFoto: 0, subirFoto: 1, login: 3, estadoIA: 1 };
+  // tiempos medidos: guardar un parte tarda 5–15 s en el servidor y subir una foto (sin IA) 10–25 s; si pasa más,
+  // casi siempre Google perdió la respuesta y conviene preguntar/reintentar ya, no esperar minutos
+  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 30000, subirFoto: 45000, leerFoto: 45000, estadoIA: 15000, estadoFoto: 15000 };
+  var REINTENTOS = { leerFoto: 0, subirFoto: 0, login: 3, estadoIA: 1, estadoFoto: 1 };
   function api(accion, datos) {
     var url = (window.AXION_CONFIG && AXION_CONFIG.API_URL) || '/api';
     var cuerpo = JSON.stringify({ accion: accion, datos: datos, token: S.token });
@@ -348,22 +350,20 @@ var Nucleo = (function () {
       f.enviando = true;
       return leerFoto(f.ref).then(function (dataURL) {
         var b64 = String(dataURL || '').split(',')[1] || '';
-        // fotos que lee la IA: el servidor las lee en el mismo pedido de subida (un viaje menos)
-        // ...pero si hay más fotos esperando (varios partes seguidos), se sube rápido y la IA se pide aparte, en paralelo:
-        // así la cola no espera la lectura de cada foto
-        var masFotos = S.outbox.some(function (x) { return x !== f && x.op === 'foto'; });
-        var conIA = iaLista() && IA_TIPOS.indexOf(f.fila.TipoEvidencia) >= 0 && !masFotos;
-        if (conIA) ia[f.ref] = { estado: 'leyendo', t: Date.now() };
-        return api('subirFoto', Object.assign({}, f.fila, { base64: b64, mime: 'image/jpeg', leerIA: conIA }));
+        // La foto sube SOLA y rápido (sin la IA en el mismo pedido): así una respuesta perdida de Google cuesta poco.
+        // La IA se pide aparte, en paralelo, con su propia recuperación (estadoIA). Medido el 26/11: subir la foto
+        // tardaba 2–4 min con Wi-Fi por respuestas perdidas que se esperaban 90 s y se reenviaban enteras.
+        return api('subirFoto', Object.assign({}, f.fila, { base64: b64, mime: 'image/jpeg' })).catch(function (e) {
+          // ¿se perdió solo la respuesta? Se pregunta (pedido diminuto) antes de volver a mandar la foto entera
+          if (e.codigo !== 'OCUPADO' && e.codigo !== 'RED') throw e;
+          return api('estadoFoto', { EvidenciaID: f.ref }).then(function (r) { if (r && r.fila) return r; throw e; }, function () { throw e; });
+        });
       }).then(function (r) {
         S.outbox = S.outbox.filter(function (x) { return x !== f; });
         aplicarServidor('EVIDENCIAS', r.fila);
         var evId = r.fila.EvidenciaID;
         if (r.lectura) { delete ia[evId]; aplicarServidor('LECTURAS_IA', r.lectura); }
-        else if (r.iaError && (r.iaError.codigo === 'IA_LIMITE' || r.iaError.codigo === 'IA_ERROR' || r.iaError.codigo === 'IA_OFF')) {
-          ia[evId] = { estado: 'error', msg: r.iaError.msg, codigo: r.iaError.codigo, t: Date.now() };
-          if (r.iaError.codigo === 'IA_ERROR') descargar(false).catch(function () {});
-        } else if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) { delete ia[evId]; leerIA(evId); }  // respaldo: pedido aparte
+        else if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) { delete ia[evId]; leerIA(evId); }  // en paralelo, no frena la cola
       }, function (e) {
         f.enviando = false;
         if (ia[f.ref] && ia[f.ref].estado === 'leyendo') delete ia[f.ref];  // la subida se reintentará; la lectura va con ella
@@ -433,7 +433,8 @@ var Nucleo = (function () {
       if (completa) S.ultimaCompleta = Date.now();
       S.ultimaSync = Date.now();
       S.errorSync = errEnvio ? 'Hay cambios por enviar: ' + errEnvio.message : '';
-      if (errEnvio) programar(30000);
+      // respuesta perdida o servidor ocupado: se reintenta en segundos; sin señal, cada 30 s
+      if (errEnvio) programar((errEnvio.codigo === 'OCUPADO' || errEnvio.codigo === 'RED') && navigator.onLine ? 4000 : 30000);
       leerPendientesIA();
     }, function (e) {
       S.errorSync = e.message;
