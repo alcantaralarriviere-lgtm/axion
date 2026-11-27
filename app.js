@@ -1942,6 +1942,8 @@
 
   /** Horas programadas de un día: 10 h por turno de lunes a sábado, 5 h el domingo. */
   function horasProgDia(fecha) { return new Date(fecha + 'T12:00:00Z').getUTCDay() === 0 ? 5 : 10; }
+  /** Km programados por turno (equipos con odómetro): 100 km, salvo que CONFIGURACION › KM_PROG_TURNO diga otra cosa. */
+  function kmProgTurno() { var v = R.num(cfg().KM_PROG_TURNO); return v && v > 0 ? v : 100; }
   var periodoMantto = '30', rangoLibre = null, filtroUtil = 'TODOS';
   function rangoMantto() {
     var h = hoy(), d;
@@ -2085,11 +2087,11 @@
       return (todos || (transporte && l === 'TRANSPORTE DE PERSONAL') || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
-      var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {};
+      var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {}, kmDia = {};
       misPartes.forEach(function (p) {
-        var h = horasDeParte(p);
-        ht += h; km += kmDeParte(p); hprod += prodPorParte[p.ParteID] || 0;
-        conParte[p.FechaTrabajo] = 1; htDia[p.FechaTrabajo] = (htDia[p.FechaTrabajo] || 0) + h;
+        var h = horasDeParte(p), k = kmDeParte(p);
+        ht += h; km += k; hprod += prodPorParte[p.ParteID] || 0;
+        conParte[p.FechaTrabajo] = 1; htDia[p.FechaTrabajo] = (htDia[p.FechaTrabajo] || 0) + h; kmDia[p.FechaTrabajo] = (kmDia[p.FechaTrabajo] || 0) + k;
       });
       // días sin parte en la app que sí están en el Excel KPI: mandan los datos del Excel (sin sumar dos veces)
       var hEq = H.porEq[e.EquipoID] || {};
@@ -2100,17 +2102,20 @@
         deExcel[x] = hx;
         var trab = usaHorometro(e) ? Math.min(hx.hm, 24) : 0;
         conParte[x] = 1; htDia[x] = trab; ht += trab;
-        if (!usaHorometro(e)) km += hx.hm;
+        if (!usaHorometro(e)) { km += hx.hm; kmDia[x] = (kmDia[x] || 0) + hx.hm; }
       });
       // antes de empezar a usar la app solo cuentan los días que tienen dato (del Excel)
       var conDato = function (x) { return x >= H.inicioApp || deExcel[x]; };
       var diasObra = dias.filter(function (x) { return enObra(e, x) && conDato(x); }).length;
       var noches = {};
       partes.forEach(function (p) { if (p.EquipoID === e.EquipoID && p.Turno === 'NOCHE') noches[p.FechaTrabajo] = 1; });
-      var hpDia = {}, hp = 0;
+      var hpDia = {}, hp = 0, kpDia = {}, kp = 0, sk = !usaHorometro(e);
       dias.forEach(function (x) {
         hpDia[x] = deExcel[x] ? deExcel[x].hp : (enObra(e, x) && conDato(x) ? horasProgDia(x) * (noches[x] ? 2 : 1) : 0);
         hp += hpDia[x];
+        // equipos por kilometraje: 100 km programados por turno por día (CONFIGURACION › KM_PROG_TURNO)
+        kpDia[x] = sk && (deExcel[x] || (enObra(e, x) && conDato(x))) ? kmProgTurno() * (noches[x] ? 2 : 1) : 0;
+        kp += kpDia[x];
       });
       var paraDia = {}, nFallas = 0, porSistema = {}, fallasDia = {};
       var mias = fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; })
@@ -2150,7 +2155,7 @@
       var totSis = Object.keys(porSistema).reduce(function (s, k) { return s + porSistema[k]; }, 0);
       if (totSis > 0) Object.keys(porSistema).forEach(function (k) { porSistema[k] = porSistema[k] * hi / totSis; });
       return { eq: e, linea: lineaDe(e), hp: hp, hi: hi, nFallas: nFallas, dm: hp ? (hp - hi) / hp : 1,
-        ht: ht, km: km, hprod: hprod, diasObra: diasObra, diasParte: Object.keys(conParte).filter(function (x) { return hpDia[x] > 0; }).length, htDia: htDia,
+        ht: ht, km: km, kmProg: kp, kmDia: kmDia, kpDia: kpDia, hprod: hprod, diasObra: diasObra, diasParte: Object.keys(conParte).filter(function (x) { return hpDia[x] > 0; }).length, htDia: htDia,
         soloKm: !usaHorometro(e), fallasDia: fallasDia, deExcel: deExcel,
         mtbf: nFallas ? (hp - hi) / nFallas : null, mttr: nFallas ? hi / nFallas : null, hpDia: hpDia, hiDia: hiDia, porSistema: porSistema };
     });
@@ -2231,15 +2236,16 @@
   function serieKPI(ind, rg) {
     var c = cubetas(rg);
     return { modo: c.modo, puntos: c.lista.map(function (b) {
-      var hp = 0, hi = 0, ht = 0, hpH = 0, fa = 0;
+      var hp = 0, hi = 0, ht = 0, hpH = 0, fa = 0, kmP = 0, kmU = 0;
       ind.forEach(function (i) {
         b.dias.forEach(function (x) {
           var p = i.hpDia[x] || 0;
           hp += p; hi += i.hiDia[x] || 0; fa += (i.fallasDia || {})[x] || 0;
           if (!i.soloKm) { hpH += p; ht += Math.min(i.htDia[x] || 0, p || 24); }
+          else { var kp = (i.kpDia || {})[x] || 0; kmP += kp; kmU += Math.min((i.kmDia || {})[x] || 0, kp || 0); }
         });
       });
-      return { et: b.et, hp: hp, hi: hi, ht: ht, fallas: fa, dm: hp ? (hp - hi) / hp : null, u: hpH ? ht / hpH : null,
+      return { et: b.et, hp: hp, hi: hi, ht: ht, fallas: fa, dm: hp ? (hp - hi) / hp : null, u: hpH ? ht / hpH : kmP ? kmU / kmP : null,
         mttr: fa ? hi / fa : null, mtbf: fa ? (hp - hi) / fa : null };
     }) };
   }
@@ -2342,11 +2348,13 @@
     var t = ind.reduce(function (s, x) {
       s.hp += x.hp; s.hi += x.hi; s.n += x.nFallas;
       if (!x.soloKm) { s.hpH += x.hp; s.ht += Math.min(x.ht, x.hp || x.ht); }
+      else { s.kmP += x.kmProg || 0; s.kmU += Math.min(x.km, x.kmProg || x.km); }
       return s;
-    }, { hp: 0, hi: 0, n: 0, hpH: 0, ht: 0 });
+    }, { hp: 0, hi: 0, n: 0, hpH: 0, ht: 0, kmP: 0, kmU: 0 });
     t.hi = Math.max(0, Math.min(t.hi, t.hp));
     t.dm = t.hp ? (t.hp - t.hi) / t.hp : null;
-    t.u = t.hpH ? Math.min(1, t.ht / t.hpH) : null;
+    // con horómetro: horas / programadas; solo equipos por km (transporte): km recorridos / km programados
+    t.u = t.hpH ? Math.min(1, t.ht / t.hpH) : t.kmP ? Math.min(1, t.kmU / t.kmP) : null;
     t.mttr = t.n ? t.hi / t.n : null;
     t.mtbf = t.n ? (t.hp - t.hi) / t.n : null;
     return t;
@@ -2373,9 +2381,10 @@
     var lineas = {};
     ind.forEach(function (i) {
       var l = i.linea || 'OTROS', f = String(i.eq.Familia || 'OTROS').toUpperCase();
-      var x = ((lineas[l] = lineas[l] || {})[f] = lineas[l][f] || { n: 0, ht: 0, htU: 0, hp: 0, km: 0, soloKm: true, hi: 0 });
+      var x = ((lineas[l] = lineas[l] || {})[f] = lineas[l][f] || { n: 0, ht: 0, htU: 0, hp: 0, km: 0, kmP: 0, kmU: 0, soloKm: true, hi: 0 });
       x.n++; x.ht += i.ht; x.hi += i.hi; x.km += i.km;
       if (!i.soloKm) { x.soloKm = false; x.hp += i.hp; x.htU += Math.min(i.ht, i.hp || i.ht); }
+      else { x.kmP += i.kmProg || 0; x.kmU += Math.min(i.km, i.kmProg || i.km); }
     });
     var nomL = { 'LINEA AMARILLA': 'Línea amarilla', 'LINEA BLANCA': 'Línea blanca', 'TRANSPORTE DE PERSONAL': 'Transporte de personal' };
     var tit = function (s) { return s.charAt(0) + s.slice(1).toLowerCase(); };
@@ -2384,8 +2393,8 @@
       var tot = fams.reduce(function (s, f) { var x = lineas[l][f]; s.ht += x.ht; s.km += x.km; s.n += x.n; return s; }, { ht: 0, km: 0, n: 0 });
       return (Object.keys(lineas).length > 1 ? '<div class="entre" style="margin-top:6px"><strong>' + esc(nomL[l] || tit(l)) + '</strong><span class="mini">' + tot.n + ' equipo(s) · ' + n1(tot.ht) + ' h' + (tot.km ? ' · ' + n1(tot.km) + ' km' : '') + '</span></div>' : '') +
         fams.map(function (f) {
-          var x = lineas[l][f], u = x.hp ? Math.min(1, x.htU / x.hp) : null;
-          var dato = x.soloKm ? '<strong class="num">' + n1(x.km) + ' km</strong>' + (x.ht ? ' · ' + n1(x.ht) + ' h' : '')
+          var x = lineas[l][f], u = x.soloKm ? (x.kmP ? Math.min(1, x.kmU / x.kmP) : null) : (x.hp ? Math.min(1, x.htU / x.hp) : null);
+          var dato = x.soloKm ? '<strong class="num">' + n1(x.km) + ' km</strong> de ' + n1(x.kmP) + ' km prog.' + (x.ht ? ' · ' + n1(x.ht) + ' h' : '')
             : '<strong class="num">' + n1(x.ht) + ' h</strong> de ' + n1(x.hp) + ' h prog.';
           return '<div style="display:grid;gap:4px"><div class="entre mini"><span><strong style="color:var(--texto)">' + esc(tit(f)) + '</strong> · ' + x.n + ' equipo(s)</span><span>' + dato + '</span></div>' +
             (u !== null ? barra(u * 100, u >= 0.6 ? 'var(--ok)' : u >= 0.4 ? 'var(--aviso)' : 'var(--peligro)', pct1(u)) : '') + '</div>';
@@ -2394,7 +2403,7 @@
     return '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Horas trabajadas por familia</h3><span class="mini">' +
       esc(lineaTablero === 'TODAS' ? 'Amarilla + blanca' : (nomL[lineaTablero] || '')) + '</span></div>' +
       (cuerpo || '<p class="mini">Sin datos en el periodo.</p>') +
-      '<p class="mini" style="margin:0">' + (lineaTablero === 'TRANSPORTE DE PERSONAL' ? 'Se mide por kilómetros recorridos (odómetro); las horas salen si el parte las anota.'
+      '<p class="mini" style="margin:0">' + (lineaTablero === 'TRANSPORTE DE PERSONAL' ? 'Se mide por kilómetros (odómetro): programado ' + n1(kmProgTurno()) + ' km por turno por día. La barra es la utilización: km recorridos / km programados.'
         : 'Horas de horómetro de los partes (y del Excel KPI antes de la app). La barra es la utilización: horas trabajadas / programadas.') + '</p></div>';
   }
 
@@ -2460,7 +2469,7 @@
       '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin dato: <strong>' + sinM + '</strong></div></div></div>' +
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
       '<p class="mini">Línea amarilla y blanca con horómetro; transporte de personal (camionetas, minibús, ambulancia) por kilómetros, en su propia pestaña. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
-      'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas. MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
+      'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas (en transporte: km recorridos / 100 km programados por turno). MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
     marco('Tableros', h, { tablero: true });
   }
 
@@ -4433,7 +4442,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v68';
+  var VERSION_APP = 'axion-v69';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
