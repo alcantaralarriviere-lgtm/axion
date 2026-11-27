@@ -2060,7 +2060,16 @@
   /** Estado del plan de mantenimiento con la última lectura recibida del equipo. */
   function estadoMantto(e) {
     var m = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
-    if (!m.EquipoID) return { m: null, estado: 'SIN PLAN' };
+    if (!m.EquipoID) {
+      // sin registro: el mismo plan del modelo que muestra Mecánica (para que todos vean lo mismo)
+      var mod = modeloDe(e);
+      if (!mod) return { m: null, estado: 'SIN PLAN' };
+      var kmM = mod.UM === 'KM', aM = lectEq(e, kmM).v, pM = R.proximoPM(mod.Intervalo, mod.SecuenciaPM, '', aM);
+      if (!pM || aM === null) return { m: null, estado: 'SIN PLAN' };
+      var umbM = Math.max(Number(mod.Intervalo) * 0.15, kmM ? 300 : 25), rM = pM.lectura - aM;
+      return { m: { EquipoID: e.EquipoID, ServicioProximo: pM.pm, LecturaProxima: pM.lectura, UM: mod.UM, Intervalo: mod.Intervalo, LecturaUltimo: '', porModelo: true },
+        actual: aM, prox: pM.lectura, restante: rM, um: kmM ? 'km' : 'h', estado: rM < 0 ? 'VENCIDO' : rM <= umbM ? 'POR VENCER' : 'OK' };
+    }
     var km = String(m.UM || '').toUpperCase() === 'KM';
     var actual = lectEq(e, km).v;
     var prox = R.num(m.LecturaProxima);
@@ -2753,19 +2762,27 @@
     var ms = mec().MODELOS_PM, k1 = R.modeloKey(e.Familia, e.Marca, e.Modelo, e.Anio), k2 = R.modeloKey(e.Familia, e.Marca, e.Modelo, '');
     return ms.filter(function (m) { return m.ModeloKey === k1; })[0] || ms.filter(function (m) { return m.ModeloKey === k2; })[0] || null;
   }
-  /** Qué PM toca: con el plan del modelo (intervalo y secuencia) o, si no hay, con el plan del equipo (Excel). */
+  /**
+   * Qué PM toca. Manda el REGISTRO DE MANTENIMIENTO del equipo (MANTENIMIENTOS: último y próximo servicio), el MISMO que
+   * usa Tableros › Plan de mantto, para que todos vean lo mismo. El plan del modelo solo se usa si el equipo no tiene registro.
+   */
   function pmDe(e) {
     var mod = modeloDe(e), mt = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
+    var st0 = estadoMantto(e);
+    if (st0.m && st0.m.porModelo) {
+      return { pm: st0.m.ServicioProximo, lectura: st0.prox, faltan: Math.round(st0.restante * 10) / 10, um: st0.um, actual: st0.actual,
+        estado: st0.estado === 'VENCIDO' ? 'VENCIDO' : st0.estado === 'POR VENCER' ? 'PROXIMO' : 'OK' };
+    }
+    if (mt.EquipoID && R.num(mt.LecturaProxima) !== null) {
+      var st = st0, km = String(mt.UM || '').toUpperCase() === 'KM';
+      var f = st.restante === undefined ? null : Math.round(st.restante * 10) / 10;
+      return { pm: mt.ServicioProximo || 'PM', lectura: Number(mt.LecturaProxima), faltan: f, um: km ? 'km' : 'h', actual: st.actual === undefined ? null : st.actual,
+        estado: st.estado === 'VENCIDO' ? 'VENCIDO' : st.estado === 'POR VENCER' ? 'PROXIMO' : st.estado === 'OK' ? 'OK' : 'SIN_LECTURA', registro: true };
+    }
     var porKm = (mod ? mod.UM : mt.UM) === 'KM' || (!e.TieneHorometro && e.TieneOdometro);
     var le = lectEq(e, porKm), actual = le.v;
     var um = porKm ? 'km' : 'h';
     if (mod) { var p = R.proximoPM(mod.Intervalo, mod.SecuenciaPM, mt.LecturaUltimo, actual); if (p) { p.um = um; p.actual = actual; return p; } }
-    if (R.num(mt.LecturaProxima) !== null) {
-      var f = actual === null ? null : Math.round((Number(mt.LecturaProxima) - actual) * 10) / 10;
-      var I = R.num(mt.Intervalo) || 250;
-      return { pm: mt.ServicioProximo || 'PM', lectura: Number(mt.LecturaProxima), faltan: f, um: um, actual: actual,
-        estado: f === null ? 'SIN_LECTURA' : f <= 0 ? 'VENCIDO' : f <= Math.max(25, I * 0.1) ? 'PROXIMO' : 'OK' };
-    }
     return { pm: '', lectura: null, faltan: null, estado: 'SIN_PLAN', um: um, actual: actual };
   }
   function chipPM(p) {
@@ -3044,7 +3061,10 @@
       '<div class="mini">' + esc([e.Marca, e.Modelo, e.Anio].filter(function (x) { return x; }).join(' ')) + ' · ' + esc(e.PlacaSerie || '') + '</div><div class="mini">Última lectura: <strong>' + esc(txtLecturas(e)) + '</strong>' +
       (lectEq(e, p.um === 'km').fuente ? ' <span style="opacity:.75">(' + esc(lectEq(e, p.um === 'km').fuente) + ')</span>' : '') + '</div></div></div>' +
       '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Próximo mantenimiento</h3>' + chipPM(p) + '</div>' +
-      (p.lectura !== null ? '<p class="sub" style="margin:0">' + esc(p.pm) + ' a las ' + n1(p.lectura) + ' ' + p.um + (mod ? ' · plan: cada ' + n1(mod.Intervalo) + ' ' + p.um + ' (' + esc(mod.SecuenciaPM) + ')' : ' · según el plan importado del Excel') + '</p>'
+      (p.lectura !== null ? '<p class="sub" style="margin:0">' + esc(p.pm) + ' a las ' + n1(p.lectura) + ' ' + p.um + (p.registro ? ' · según el registro de mantenimiento (el mismo de Tableros)' + (function () {
+        var mt = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
+        return mt.ServicioUltimo ? '. Último: ' + esc(mt.ServicioUltimo) + (mt.FechaUltimo ? ' el ' + fF(mt.FechaUltimo) : '') + (mt.LecturaUltimo !== '' && mt.LecturaUltimo !== undefined ? ' a ' + n1(mt.LecturaUltimo) + ' ' + p.um : '') : '';
+      })() : mod ? ' · plan del modelo: cada ' + n1(mod.Intervalo) + ' ' + p.um + ' (' + esc(mod.SecuenciaPM) + ')' : '') + '</p>'
         : '<p class="sub" style="margin:0">Este modelo aún no tiene plan.' + (esAdminRol() ? ' Créelo con "Ficha y plan".' : ' Pídale al administrador que lo cree.') + '</p>') +
       (puedeOperarMec() ? '<button type="button" class="btn primario ancho" data-a="mecHacerPM" data-k="' + id + '" data-v="' + esc(/^PM\d$/.test(p.pm) ? p.pm : pmsUnicos[0]) + '">' + ic('wrench') + 'Hacer mantenimiento' + (/^PM\d$/.test(p.pm) ? ' ' + esc(p.pm) : '') + '</button>' : '') +
       (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecModelo" data-k="' + id + '">' + ic('edit') + 'Ficha y plan del modelo</button>' : '') + '</div>' +
@@ -4230,7 +4250,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v58';
+  var VERSION_APP = 'axion-v59';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
