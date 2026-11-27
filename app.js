@@ -1139,9 +1139,35 @@
         '<span class="pie">' + esc(e.TipoEvidencia.replace(/_/g, ' ').toLowerCase()) + (e._pend ? ' · por enviar' : '') + '</span></button>';
     }).join('') + '</div>';
   }
+  /**
+   * Pone la foto en cada miniatura. Primero la copia del celular; si no está (se tomó en otro celular o ya se borró
+   * a los 3 días), la trae del servidor, una a la vez y solo en pantallas con pocas fotos, y queda guardada.
+   */
+  var fotoPedida = {};   // EvidenciaID → true mientras se descarga o si falló (no se vuelve a pedir en cada pantalla)
   function hidratarFotos() {
-    document.querySelectorAll('[data-foto]').forEach(function (el) {
-      N.leerFoto(el.getAttribute('data-foto')).then(function (d) { if (d) { el.style.backgroundImage = 'url(' + d + ')'; el.querySelector('svg') && el.querySelector('svg').remove(); } });
+    var faltan = [];
+    var pintar = function (el, d) { el.style.backgroundImage = 'url(' + d + ')'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center'; var s = el.querySelector('svg'); if (s) s.remove(); };
+    var els = Array.prototype.slice.call(document.querySelectorAll('[data-foto]'));
+    Promise.all(els.map(function (el) {
+      var id = el.getAttribute('data-foto');
+      return N.leerFoto(id).then(function (d) { if (d) pintar(el, d); else faltan.push(el); }, function () { faltan.push(el); });
+    })).then(function () {
+      if (!faltan.length || faltan.length > 6 || !navigator.onLine) return;
+      var siguiente = function () {
+        var el = faltan.shift();
+        if (!el) return;
+        var id = el.getAttribute('data-foto');
+        if (fotoPedida[id]) return siguiente();
+        fotoPedida[id] = true;
+        N.api('verFoto', { EvidenciaID: id }).then(function (r) {
+          if (!r || r.demo || !r.base64) return;
+          var url = 'data:' + r.mime + ';base64,' + r.base64;
+          N.guardarFoto(id, url);
+          // la pantalla pudo redibujarse mientras bajaba: se pinta en el elemento actual
+          Array.prototype.forEach.call(document.querySelectorAll('[data-foto="' + id + '"]'), function (x) { pintar(x, url); });
+        }, function () { /* sin foto: queda el ícono; tocarlo la vuelve a pedir */ }).then(siguiente);
+      };
+      siguiente();
     });
   }
   /**
@@ -4345,7 +4371,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v63';
+  var VERSION_APP = 'axion-v64';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
