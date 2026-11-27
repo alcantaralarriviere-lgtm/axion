@@ -2986,12 +2986,34 @@
     var ini = ma.split(/\s+/).map(function (x) { return x.charAt(0); }).join('').substring(0, 3);
     return '<span aria-hidden="true" style="display:grid;place-items:center;width:52px;height:52px;border-radius:14px;font-weight:900;font-size:18px;letter-spacing:.04em;color:#111;background:' + c + ';box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)">' + esc(ini) + '</span>';
   }
+  /**
+   * Logotipo de la marca (para identificar al fabricante del equipo). Imágenes públicas de Wikimedia Commons y Simple Icons;
+   * se cargan de internet y quedan en la memoria del navegador. Sin señal o sin logo conocido: el monograma de colores.
+   */
+  var WM = function (n) { return 'https://commons.wikimedia.org/wiki/Special:FilePath/' + encodeURIComponent(n) + '?width=240'; };
+  var SI = function (s) { return 'https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/' + s + '.svg'; };
+  var LOGO_MARCA = {
+    CATERPILLAR: WM('Caterpillar logo.svg'), TOYOTA: WM('Toyota carlogo.svg'), HYUNDAI: WM('Hyundai Motor Company logo.svg'),
+    MAN: WM('MAN Truck & Bus - Logo.svg'), HINO: WM('Hino Motors logo.svg'), JAC: WM('New Jac motors logo.png'),
+    GENERAC: WM('Generac Power Systems logo.png'), 'ATLAS CORP': WM('Atlas Copco Group logo.svg'), 'ATLAS COPCO': WM('Atlas Copco Group logo.svg'),
+    SCANIA: SI('scania'), 'JOHN DEERE': SI('johndeere'), VOLVO: SI('volvo')
+  };
+  function logoMarca(ma, grande) {
+    var u = LOGO_MARCA[String(ma || '').toUpperCase().trim()];
+    if (!u) return monograma(ma);
+    var w = grande ? 132 : 112, hgt = grande ? 60 : 52;
+    // si la imagen no carga (sin señal), se cambia por el monograma guardado en data-mono
+    return '<span class="logo-marca" data-mono="' + esc(monograma(ma)) + '" style="display:inline-grid;place-items:center;width:' + w + 'px;height:' + hgt +
+      'px;padding:6px 10px;border-radius:14px;background:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,.12)">' +
+      '<img src="' + esc(u) + '" alt="Logo ' + esc(ma) + '" loading="lazy" referrerpolicy="no-referrer" width="' + (w - 20) + '" height="' + (hgt - 12) + '" style="width:' + (w - 20) + 'px;height:' + (hgt - 12) + 'px;object-fit:contain"' +
+      ' onerror="var s=this.parentNode;s.outerHTML=s.getAttribute(\'data-mono\')"></span>';
+  }
   function gridMarcas() {
     var fl = flotaPorMarca();
     return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">' + Object.keys(fl).sort().map(function (ma) {
       var grupos = fl[ma], us = [].concat.apply([], Object.keys(grupos).map(function (g) { return grupos[g]; }));
       var sinPlan = Object.keys(grupos).filter(function (g) { return !modeloDe(grupos[g][0]); }).length, al = porAtender(us);
-      return '<a class="tarjeta" href="#/mec-marca/' + encodeURIComponent(ma) + '" style="display:grid;gap:8px;justify-items:start;text-decoration:none;color:inherit">' + monograma(ma) +
+      return '<a class="tarjeta" href="#/mec-marca/' + encodeURIComponent(ma) + '" style="display:grid;gap:8px;justify-items:start;text-decoration:none;color:inherit">' + logoMarca(ma) +
         '<strong style="font-size:15px">' + esc(ma) + '</strong><span class="mini">' + Object.keys(grupos).length + ' modelo(s) · ' + us.length + ' unidad(es)</span>' +
         (al ? '<span class="estado alerta">' + al + ' por atender</span>' : sinPlan ? '<span class="estado">' + sinPlan + ' sin plan</span>' : '<span class="estado ok">Planes al día</span>') + '</a>';
     }).join('') + '</div>';
@@ -2999,7 +3021,7 @@
   function vMecMarca(ma) {
     ma = decodeURIComponent(ma || '');
     var grupos = flotaPorMarca()[ma] || {};
-    var h = '<div class="tarjeta uno-cabecera">' + monograma(ma) + '<div class="crece"><h3>' + esc(ma) + '</h3><div class="mini">' + Object.keys(grupos).length + ' modelo(s) en obra</div></div></div>' +
+    var h = '<div class="tarjeta uno-cabecera">' + logoMarca(ma, true) + '<div class="crece"><h3>' + esc(ma) + '</h3><div class="mini">' + Object.keys(grupos).length + ' modelo(s) en obra</div></div></div>' +
       '<div class="lista">' + Object.keys(grupos).sort().map(function (g) {
         var us = grupos[g], e0 = us[0], mod = modeloDe(e0), al = porAtender(us), p = g.split('|');
         var resumen = mod && mod.FichaTecnica ? String(mod.FichaTecnica).split('\n').filter(function (x) { return /motor|potencia/i.test(x); })[0] || String(mod.FichaTecnica).split('\n')[0] : '';
@@ -3022,7 +3044,7 @@
     var pms = seq.filter(function (x, i) { return seq.indexOf(x) === i; }).sort();
     var um = mod && mod.UM === 'KM' ? 'km' : 'h';
     var ciclo = mod ? seq.map(function (x, i) { return n1(mod.Intervalo * (i + 1)) + ' ' + um + ' ' + x; }).join(' · ') : '';
-    var h = '<div class="tarjeta uno-cabecera">' + monograma(p[1]) + '<div class="crece"><h3>' + esc(p[1] + ' ' + p[2]) + '</h3><div class="mini">' + esc(p[0]) + ' · ' + us.length + ' unidad(es) en obra</div></div></div>' +
+    var h = '<div class="tarjeta uno-cabecera">' + logoMarca(p[1], true) + '<div class="crece"><h3>' + esc(p[1] + ' ' + p[2]) + '</h3><div class="mini">' + esc(p[0]) + ' · ' + us.length + ' unidad(es) en obra</div></div></div>' +
       '<div class="tarjeta" style="display:grid;gap:8px"><h3>Ficha técnica</h3>' +
       (mod && mod.FichaTecnica ? '<div class="uno-lista">' + String(mod.FichaTecnica).split('\n').filter(function (x) { return x.trim(); }).map(function (x) {
         var i = x.indexOf(':');
@@ -4250,7 +4272,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v59';
+  var VERSION_APP = 'axion-v60';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
