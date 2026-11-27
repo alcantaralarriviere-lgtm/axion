@@ -1889,6 +1889,32 @@
     });
   }
   function equiposDesmovilizados() { return (cat().EQUIPOS || []).filter(function (e) { return equiposObra().indexOf(e) < 0; }); }
+  /**
+   * Flota de un periodo: equipos que estuvieron en obra al menos un día del periodo (por fecha de ingreso y salida),
+   * operadores distintos con partes en el periodo, equipos que ingresaron y que salieron (desmovilizados) dentro del periodo.
+   */
+  function flotaPeriodo(rg) {
+    var deObra = function (e) { return obraTablero === 'TODAS' || obraDeEq(e) === obraTablero; };
+    var eqs = (cat().EQUIPOS || []).filter(deObra);
+    var ids = {};
+    eqs.forEach(function (e) { ids[e.EquipoID] = 1; });
+    var partes = N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO' && p.FechaTrabajo >= rg.desde && p.FechaTrabajo <= rg.hasta && ids[p.EquipoID]; });
+    var conParte = {}, ops = {};
+    partes.forEach(function (p) { conParte[p.EquipoID] = 1; if (p.OperadorID) ops[p.OperadorID] = 1; });
+    var estuvo = eqs.filter(function (e) {
+      if (conParte[e.EquipoID]) return true;
+      var ini = e.FechaIngresoObra || '', fin = e.FechaSalidaObra || '';
+      if (!ini && !fin && e.Estado === 'BAJA') return false;
+      return (!ini || ini <= rg.hasta) && (!fin || fin > rg.desde);
+    });
+    var dentro = function (f) { return f && f >= rg.desde && f <= rg.hasta; };
+    return {
+      equipos: estuvo.length,
+      operadores: Object.keys(ops).length,
+      ingresaron: eqs.filter(function (e) { return dentro(e.FechaIngresoObra); }).length,
+      salieron: eqs.filter(function (e) { return dentro(e.FechaSalidaObra); }).length
+    };
+  }
   function pestanasMantto(act) {
     if (rol() === 'OPERADOR') return '';
     return '<div class="segmento pestanas" role="group" aria-label="Mantenimiento">' + [['mantto', 'Resumen'], ['equipos', 'Equipos'], ['utilizacion', 'Utilización'], ['fallas', 'Fallas'], ['plan', 'Plan de mantto'], ['reportes', 'Reportes']].map(function (x) {
@@ -2449,15 +2475,16 @@
     var totM = Math.max(1, eqs.length);
     var dona = 'conic-gradient(var(--peligro) 0 ' + (venc / totM * 360) + 'deg, var(--aviso) 0 ' + ((venc + porV) / totM * 360) + 'deg, var(--ok) 0 ' + ((venc + porV + okM) / totM * 360) + 'deg, var(--sup-2) 0 360deg)';
     var peores = ind.filter(function (i) { return i.hp > 0; }).sort(function (a, b) { return a.dm - b.dm; }).slice(0, 8);
-    // flota en obra (hoy), para no contar uno por uno
-    var opsAct = (adm().operadores.length ? adm().operadores : (cat().OPERADORES || [])).filter(function (o) {
-      return (o.Estado || 'ACTIVO') === 'ACTIVO' && (obraTablero === 'TODAS' || !o.ObraID || o.ObraID === obraTablero);
-    }).length;
+    // flota DEL PERIODO elegido (no la de hoy): equipos que estuvieron en obra algún día del periodo, operadores que
+    // hicieron partes en el periodo y equipos que salieron de obra dentro del periodo
+    var fp = flotaPeriodo(rg);
+    var kpiF = function (v, l) { return '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + v + '</div><div class="l">' + l + '</div></div>'; };
     var flota = '<a class="tarjeta" href="' + (rol() === 'ADMIN' ? '#/admin/equipos' : '#/equipos') + '" style="text-decoration:none;color:inherit;display:grid;gap:10px">' +
-      '<div class="entre"><h3>Flota en obra (hoy)</h3>' + ic('right') + '</div><div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
-      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + eqs.length + '</div><div class="l">Equipos en obra</div></div>' +
-      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + opsAct + '</div><div class="l">Operadores activos</div></div>' +
-      '<div class="kpi" style="box-shadow:none;background:var(--fondo)"><div class="v num">' + equiposDesmovilizados().length + '</div><div class="l">Desmovilizados</div></div></div></a>';
+      '<div class="entre"><h3>Flota en el periodo</h3><span class="mini">' + esc(rg.desde === rg.hasta ? fF(rg.desde) : fF(rg.desde) + ' – ' + fF(rg.hasta)) + ' ' + ic('right') + '</span></div>' +
+      '<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))">' +
+      kpiF(fp.equipos, 'Equipos en obra') + kpiF(fp.operadores, 'Operadores con partes') +
+      kpiF(fp.ingresaron, 'Ingresaron') + kpiF(fp.salieron, 'Desmovilizados') + '</div>' +
+      '<p class="mini" style="margin:0">Hoy en obra: ' + eqs.length + ' equipo(s).</p></a>';
     var h = pestanasMantto('mantto') + filtroPeriodo(rg) + flota + filtroLinea() +
       '<div class="kpis">' +
       kpiTend(t.dm === null ? '—' : pct1(t.dm), 'Disponibilidad mecánica', t.dm, ta.dm, true) +
@@ -2486,7 +2513,7 @@
         return '<a href="#/equipo/' + i.eq.EquipoID + '" style="text-decoration:none;color:inherit;display:grid;gap:4px"><div class="entre mini"><span><strong style="color:var(--texto)">' + esc(i.eq.CodigoInterno) + '</strong> · ' + i.nFallas + ' falla(s) · ' + n1(i.hi) + ' h parado</span>' + ic('right') + '</div>' +
           barra(i.dm * 100, colorDM(i.dm), pct1(i.dm)) + '</a>';
       }).join('') : '<p class="mini">Sin datos.</p>') + '</div>' +
-      '<div class="tarjeta" style="display:grid;gap:10px"><h3>Mantenimientos preventivos</h3><div style="display:flex;gap:16px;align-items:center">' +
+      '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Mantenimientos preventivos</h3><span class="mini">estado de hoy</span></div><div style="display:flex;gap:16px;align-items:center">' +
       '<div style="width:110px;height:110px;border-radius:50%;background:' + dona + ';display:grid;place-items:center;flex:none"><div style="width:70px;height:70px;border-radius:50%;background:var(--sup-1);display:grid;place-items:center" class="num"><strong>' + eqs.length + '</strong></div></div>' +
       '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--aviso)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
       '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin dato: <strong>' + sinM + '</strong></div></div></div>' +
@@ -2501,7 +2528,10 @@
     var rg = rangoMantto();
     var ind = indicadoresMantto(rg, true), porId = {};
     ind.forEach(function (i) { porId[i.eq.EquipoID] = i; });
-    var lista = equiposObra().filter(function (e) { return coincide('equipos', [e.CodigoInterno, e.Familia, e.Marca, e.Modelo, lineaDe(e)].join(' ')); })
+    // los equipos que estuvieron en obra en el periodo elegido (incluye los ya desmovilizados), no solo los de hoy
+    var hoyObra = {};
+    equiposObra().forEach(function (e) { hoyObra[e.EquipoID] = 1; });
+    var lista = ind.map(function (i) { return i.eq; }).filter(function (e) { return coincide('equipos', [e.CodigoInterno, e.Familia, e.Marca, e.Modelo, lineaDe(e)].join(' ')); })
       .sort(function (a, b) { return String(a.CodigoInterno).localeCompare(String(b.CodigoInterno), 'es', { numeric: true }); });
     var chipPM = function (e) {
       var s = estadoMantto(e).estado;
@@ -2513,7 +2543,7 @@
         var i = porId[e.EquipoID];
         var u = i && !i.soloKm && i.hp ? Math.min(1, i.ht / i.hp) : null;
         return '<a class="tarjeta tocable" href="#/equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;display:grid;gap:8px;padding:12px 14px">' +
-          '<div class="parte-fila"><div class="icono-caja acento">' + ic(usaHorometro(e) ? 'gauge' : 'truck') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + '</div></div>' + chipPM(e) + '</div>' +
+          '<div class="parte-fila"><div class="icono-caja acento">' + ic(usaHorometro(e) ? 'gauge' : 'truck') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + '</h3><div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + (hoyObra[e.EquipoID] ? '' : ' · <strong>desmovilizado' + (e.FechaSalidaObra ? ' ' + fF(e.FechaSalidaObra) : '') + '</strong>') + '</div></div>' + (hoyObra[e.EquipoID] ? chipPM(e) : '') + '</div>' +
           (i ? '<div class="dos mini"><div>Disponibilidad ' + barra(i.dm * 100, colorDM(i.dm), pct1(i.dm)) + '</div>' +
             '<div>' + (u !== null ? 'Utilización ' + barra(u * 100, u >= .6 ? 'var(--texto)' : 'var(--aviso)', pct1(u)) : 'Recorrido <strong style="color:var(--texto)">' + n1(i.km) + ' km</strong>') + '</div></div>' : '') + '</a>';
       }).join('') + '</div>';
@@ -4465,7 +4495,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v71';
+  var VERSION_APP = 'axion-v72';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
