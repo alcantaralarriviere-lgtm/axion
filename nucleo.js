@@ -449,7 +449,9 @@ var Nucleo = (function () {
     return api('datos', { desde: completo ? null : S.marca }).then(function (d) {
       S.perfil = d.perfil;
       S.cat = d.catalogos;
-      if (Array.isArray(d.HISTORICO)) S.hist = d.HISTORICO;  // solo viene en la descarga completa
+      if (Array.isArray(d.HISTORICO)) { S.hist = d.HISTORICO; S.histFirma = d.HIST_FIRMA; }  // solo viene en la descarga completa
+      // el histórico cambió en el servidor (p. ej. se cargó un Excel): la próxima sincronización trae la descarga completa
+      else if (d.HIST_FIRMA !== undefined && d.HIST_FIRMA !== S.histFirma) { S.ultimaCompleta = 0; programar(3000); }
       var pendiente = {};
       S.outbox.forEach(function (it) { pendiente[it.ref] = true; if (it.parte) pendiente['P:' + it.parte] = true; });
       var partesNuevas = {};

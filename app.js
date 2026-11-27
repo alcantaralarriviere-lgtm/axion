@@ -2002,17 +2002,23 @@
   function historico() {
     var h = S().hist || [];
     if (_hist && _hist.src === h) return _hist;
-    var porEq = {};
+    var porEq = {}, porEqT = {};
     h.forEach(function (x) {
       var f = String(x[0] || '').substring(0, 10), e = x[1];
       if (!e || !f) return;
+      var tu = String(x[2] || 'DIA').toUpperCase() === 'NOCHE' ? 'NOCHE' : 'DIA';
       var d = ((porEq[e] = porEq[e] || {})[f] = porEq[e][f] || { hp: 0, hi: 0, hm: 0, paradas: 0, sis: {} });
+      // también por turno: así se decide turno por turno entre el parte de la app y el histórico
+      var dt = (((porEqT[e] = porEqT[e] || {})[f] = porEqT[e][f] || {})[tu] = porEqT[e][f][tu] || { hp: 0, hi: 0, hm: 0, paradas: 0, sis: {} });
       // nunca valores imposibles: horas negativas (reparación que cruzó la medianoche) se corrigen y nada pasa de las horas programadas
       var hp = Math.max(0, Number(x[3]) || 0), hr = Number(x[4]) || 0;
       if (hr < 0) hr += 24;
       hr = Math.max(0, Math.min(hr, hp || 24));
-      d.hp += hp; d.hi = Math.min(d.hi + hr, d.hp); d.hm += Math.max(0, Number(x[5]) || 0); d.paradas += Math.max(0, Number(x[8]) || 0);
-      if (x[9] && hr > 0) d.sis[x[9]] = (d.sis[x[9]] || 0) + hr;
+      var hm = Math.max(0, Number(x[5]) || 0), par = Math.max(0, Number(x[8]) || 0);
+      [d, dt].forEach(function (z) {
+        z.hp += hp; z.hi = Math.min(z.hi + hr, z.hp); z.hm += hm; z.paradas += par;
+        if (x[9] && hr > 0) z.sis[x[9]] = (z.sis[x[9]] || 0) + hr;
+      });
     });
     // inicio real de la app: el primer día con 5 o más partes (los partes sueltos de antes eran pruebas).
     // Desde ese día las paradas salen de FALLAS (reporte de paradas + lo registrado en la app); antes, del Excel KPI.
@@ -2020,7 +2026,7 @@
     N.filas('PARTES_DIARIOS', function (p) { return p.Estado !== 'ANULADO'; }).forEach(function (p) { porDia[p.FechaTrabajo] = (porDia[p.FechaTrabajo] || 0) + 1; });
     var diasP = Object.keys(porDia).sort();
     var ini = diasP.filter(function (x) { return porDia[x] >= 5; })[0] || diasP[0];
-    _hist = { src: h, porEq: porEq, inicioApp: ini || hoy() };
+    _hist = { src: h, porEq: porEq, porEqT: porEqT, inicioApp: ini || hoy() };
     return _hist;
   }
   /**
@@ -2088,36 +2094,51 @@
       return (todos || (transporte && (l === 'TRANSPORTE DE PERSONAL' || l === 'LINEA BLANCA')) || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
-      var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {}, kmDia = {};
+      var sk = !usaHorometro(e);
+      // se decide TURNO por TURNO (no por día): en cada turno manda el parte de la app si tiene lectura;
+      // si no hay parte, o el parte no trae horómetro/odómetro, se usa el histórico (Excel KPI / recorridos) de ese turno.
+      // Así no se pierde el turno noche del Excel cuando la app solo tiene el de día, y nada se cuenta dos veces.
+      var appT = {};   // fecha → turno → {h, k, conLectura, prod}
       misPartes.forEach(function (p) {
         var h = horasDeParte(p), k = kmDeParte(p);
-        ht += h; km += k; hprod += prodPorParte[p.ParteID] || 0;
-        conParte[p.FechaTrabajo] = 1; htDia[p.FechaTrabajo] = (htDia[p.FechaTrabajo] || 0) + h; kmDia[p.FechaTrabajo] = (kmDia[p.FechaTrabajo] || 0) + k;
+        var t = ((appT[p.FechaTrabajo] = appT[p.FechaTrabajo] || {})[p.Turno] = appT[p.FechaTrabajo][p.Turno] || { h: 0, k: 0, conLectura: false, prod: 0 });
+        t.h += h; t.k += k; t.prod += prodPorParte[p.ParteID] || 0;
+        if (h > 0 || k > 0 || R.num(p.HorometroFinal) !== null || R.num(p.OdometroFinal) !== null) t.conLectura = true;
       });
-      // días sin parte en la app que sí están en el Excel KPI: mandan los datos del Excel (sin sumar dos veces)
-      var hEq = H.porEq[e.EquipoID] || {};
-      var deExcel = {};
-      dias.forEach(function (x) {
-        var hx = hEq[x];
-        if (!hx || conParte[x]) return;
-        deExcel[x] = hx;
-        var trab = usaHorometro(e) ? Math.min(hx.hm, 24) : 0;
-        conParte[x] = 1; htDia[x] = trab; ht += trab;
-        if (!usaHorometro(e)) { km += hx.hm; kmDia[x] = (kmDia[x] || 0) + hx.hm; }
-      });
+      var hEqT = H.porEqT[e.EquipoID] || {};
+      var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {}, kmDia = {}, deExcel = {}, hpDia = {}, hp = 0, kpDia = {}, kp = 0;
       // antes de empezar a usar la app solo cuentan los días que tienen dato (del Excel)
-      var conDato = function (x) { return x >= H.inicioApp || deExcel[x]; };
-      var diasObra = dias.filter(function (x) { return enObra(e, x) && conDato(x); }).length;
-      var noches = {};
-      partes.forEach(function (p) { if (p.EquipoID === e.EquipoID && p.Turno === 'NOCHE') noches[p.FechaTrabajo] = 1; });
-      var hpDia = {}, hp = 0, kpDia = {}, kp = 0, sk = !usaHorometro(e);
+      var conDato = function (x) { return x >= H.inicioApp || !!hEqT[x]; };
       dias.forEach(function (x) {
-        hpDia[x] = deExcel[x] ? deExcel[x].hp : (enObra(e, x) && conDato(x) ? horasProgDia(x) * (noches[x] ? 2 : 1) : 0);
-        hp += hpDia[x];
+        var aT = appT[x] || {}, xT = hEqT[x] || {};
+        var turnos = Object.keys(aT).concat(Object.keys(xT)).filter(function (t, i, a) { return a.indexOf(t) === i; });
+        var hD = 0, kD = 0, hpD = 0, nT = 0, ex = null;
+        turnos.forEach(function (t) {
+          var a = aT[t], xx = xT[t];
+          if (a && (a.conLectura || !xx)) {
+            // parte de la app (aunque venga sin lectura, si el Excel no tiene ese turno)
+            hD += a.h; kD += a.k; hprod += a.prod; nT++;
+            if (enObra(e, x)) hpD += horasProgDia(x);
+          } else if (xx) {
+            ex = ex || { hp: 0, hi: 0, hm: 0, paradas: 0, sis: {} };
+            ex.hp += xx.hp; ex.hi += xx.hi; ex.hm += xx.hm; ex.paradas += xx.paradas;
+            Object.keys(xx.sis).forEach(function (s) { ex.sis[s] = (ex.sis[s] || 0) + xx.sis[s]; });
+            if (sk) kD += xx.hm; else hD += xx.hm;
+            hpD += xx.hp; nT++;
+          }
+        });
+        if (ex) { ex.hi = Math.min(ex.hi, ex.hp || ex.hi); deExcel[x] = ex; }
+        if (turnos.length) conParte[x] = 1;
+        hD = Math.min(hD, 24);
+        htDia[x] = hD; ht += hD; kmDia[x] = kD; km += kD;
+        // sin ningún registro ese día: programado el turno día (si estuvo en obra)
+        if (!turnos.length) hpD = enObra(e, x) && conDato(x) ? horasProgDia(x) : 0;
+        hpDia[x] = hpD; hp += hpD;
         // equipos por kilometraje: 100 km programados por turno por día (CONFIGURACION › KM_PROG_TURNO)
-        kpDia[x] = sk && (deExcel[x] || (enObra(e, x) && conDato(x))) ? kmProgTurno() * (noches[x] ? 2 : 1) : 0;
+        kpDia[x] = sk && (turnos.length || (enObra(e, x) && conDato(x))) ? kmProgTurno() * Math.max(1, nT) : 0;
         kp += kpDia[x];
       });
+      var diasObra = dias.filter(function (x) { return enObra(e, x) && conDato(x); }).length;
       var paraDia = {}, nFallas = 0, porSistema = {}, fallasDia = {};
       var mias = fallas.filter(function (f) { return f.EquipoID === e.EquipoID && f.FallaFuncional !== 'NO'; })
         .sort(function (a, b) { return String(a.FechaHoraInicio).localeCompare(String(b.FechaHoraInicio)); });
@@ -4444,7 +4465,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v70';
+  var VERSION_APP = 'axion-v71';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
