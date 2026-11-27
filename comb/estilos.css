@@ -290,3 +290,41 @@ dialog.foto { width: calc(100vw - 16px); max-width: 1100px; height: 92dvh; paddi
   .marco { padding-bottom: 90px; }
 }
 @media print { .cabecera, .barra-nav, .acciones { display: none !important; } body { background: #fff; color: #000; } }
+
+/* ==================================================================================================================
+ * MODO CLARO (el mismo de AXION: Cuenta › Apariencia). combustible.html pone <html data-tema="claro">.
+ * ================================================================================================================== */
+html[data-tema="claro"] {
+  --fondo: #F3F1EC; --fondo-2: #FFFFFF; --sup-1: #FFFFFF; --sup-1b: #FAF9F6; --sup-2: #ECE9E3;
+  --borde: rgba(24, 24, 30, .10); --borde-2: rgba(24, 24, 30, .16);
+  --acento: #F5A800; --acento-2: #F07A12; --acento-borde: #B87600; --acento-texto: #1A1205; --acento-suave: rgba(245, 168, 0, .16);
+  --texto: #1B1C20; --texto-2: #4D4F56; --texto-3: #74767D;
+  --ok: #0F9A62; --ok-suave: rgba(15, 154, 98, .12); --duda: #956F00; --duda-suave: rgba(229, 192, 74, .22);
+  --peligro: #D93A2F; --peligro-texto: #B92B21; --peligro-suave: rgba(217, 58, 47, .10); --azul: #2B7BD3;
+  --luz: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --sombra: 0 18px 40px -18px rgba(30, 30, 45, .28), 0 1px 3px rgba(30, 30, 45, .12);
+  --hundido: inset 0 1px 3px rgba(30, 30, 45, .10), inset 0 0 0 1px rgba(30, 30, 45, .08);
+  color-scheme: light;
+}
+html[data-tema="claro"] body { background: radial-gradient(1200px 600px at 85% -10%, rgba(245, 168, 0, .10), transparent 60%), var(--fondo); }
+html[data-tema="claro"] a { color: #9A6200; }
+html[data-tema="claro"] .cabecera { background: rgba(243, 241, 236, .90); }
+html[data-tema="claro"] .barra-nav { background: rgba(255, 255, 255, .94); }
+html[data-tema="claro"] .barra-nav button.activo { color: #8A5800; }
+html[data-tema="claro"] .marca { color: #B87600; }
+html[data-tema="claro"] .btn { background: linear-gradient(180deg, #FFFFFF, #F0EEE9); box-shadow: inset 0 1px 0 #fff, 0 3px 0 #D6D2C8, 0 8px 16px -10px rgba(30, 30, 45, .3); }
+html[data-tema="claro"] .btn:active { box-shadow: inset 0 1px 0 #fff, 0 1px 0 #D6D2C8; }
+html[data-tema="claro"] .btn.primario { background: linear-gradient(180deg, #FFC433, var(--acento) 60%, #F09A00); }
+html[data-tema="claro"] .btn.peligro { background: linear-gradient(180deg, #FFF6F5, #FCE8E6); }
+html[data-tema="claro"] .btn.ok { background: linear-gradient(180deg, #F1FBF6, #E1F5EB); }
+html[data-tema="claro"] .kpi.alerta { background: linear-gradient(180deg, #FFF6F5, #FDECEA); }
+html[data-tema="claro"] td { border-bottom-color: rgba(24, 24, 30, .07); }
+html[data-tema="claro"] tr.clic:hover td { background: rgba(24, 24, 30, .03); }
+html[data-tema="claro"] .g-rejilla { stroke: rgba(24, 24, 30, .10); }
+html[data-tema="claro"] .g-toque:hover { fill: rgba(24, 24, 30, .04); }
+html[data-tema="claro"] .g-piso { fill: rgba(24, 24, 30, .04); stroke: rgba(24, 24, 30, .10); }
+html[data-tema="claro"] .tanque .cuerpo { background: linear-gradient(90deg, #DAD7D0, #F7F6F3 40%, #DAD7D0); box-shadow: inset 0 0 0 1px rgba(24, 24, 30, .12), 0 16px 30px -14px rgba(30, 30, 45, .4); }
+html[data-tema="claro"] .zona-foto { background: rgba(245, 168, 0, .05); }
+html[data-tema="claro"] .cuadre { background: rgba(255, 255, 255, .97); }
+html[data-tema="claro"] dialog::backdrop { background: rgba(24, 24, 30, .45); }
+html[data-tema="claro"] .girar { border-color: rgba(24, 24, 30, .15); border-top-color: var(--acento); }
