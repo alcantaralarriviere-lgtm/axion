@@ -2083,8 +2083,9 @@
     };
     return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
-      // transporte de personal (camionetas, minibús, ambulancia): se mide por km, entra solo si se pide esa línea
-      return (todos || (transporte && l === 'TRANSPORTE DE PERSONAL') || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
+      // con "porKm" (Resumen) también entran los que se miden por km: transporte de personal y los de la línea blanca
+      // con odómetro (camión baranda, cisterna de combustible). Las demás pantallas siguen solo con horómetro.
+      return (todos || (transporte && (l === 'TRANSPORTE DE PERSONAL' || l === 'LINEA BLANCA')) || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
       var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {}, kmDia = {};
@@ -2236,16 +2237,16 @@
   function serieKPI(ind, rg) {
     var c = cubetas(rg);
     return { modo: c.modo, puntos: c.lista.map(function (b) {
-      var hp = 0, hi = 0, ht = 0, hpH = 0, fa = 0, kmP = 0, kmU = 0;
+      var hp = 0, hi = 0, ht = 0, hpH = 0, fa = 0;
       ind.forEach(function (i) {
         b.dias.forEach(function (x) {
           var p = i.hpDia[x] || 0;
           hp += p; hi += i.hiDia[x] || 0; fa += (i.fallasDia || {})[x] || 0;
           if (!i.soloKm) { hpH += p; ht += Math.min(i.htDia[x] || 0, p || 24); }
-          else { var kp = (i.kpDia || {})[x] || 0; kmP += kp; kmU += Math.min((i.kmDia || {})[x] || 0, kp || 0); }
+          else { var kp = (i.kpDia || {})[x] || 0; if (kp > 0 && p > 0) { hpH += p; ht += p * Math.min(1, ((i.kmDia || {})[x] || 0) / kp); } }
         });
       });
-      return { et: b.et, hp: hp, hi: hi, ht: ht, fallas: fa, dm: hp ? (hp - hi) / hp : null, u: hpH ? ht / hpH : kmP ? kmU / kmP : null,
+      return { et: b.et, hp: hp, hi: hi, ht: ht, fallas: fa, dm: hp ? (hp - hi) / hp : null, u: hpH ? ht / hpH : null,
         mttr: fa ? hi / fa : null, mtbf: fa ? (hp - hi) / fa : null };
     }) };
   }
@@ -2347,14 +2348,15 @@
   function totalesKPI(ind) {
     var t = ind.reduce(function (s, x) {
       s.hp += x.hp; s.hi += x.hi; s.n += x.nFallas;
+      // utilización combinada: los de horómetro aportan sus horas; los de km, su fracción km/km programados
+      // pesada con sus horas programadas (así se pueden juntar volquetes por horas y camiones baranda por km)
       if (!x.soloKm) { s.hpH += x.hp; s.ht += Math.min(x.ht, x.hp || x.ht); }
-      else { s.kmP += x.kmProg || 0; s.kmU += Math.min(x.km, x.kmProg || x.km); }
+      else if (x.kmProg > 0) { s.hpH += x.hp; s.ht += x.hp * Math.min(1, x.km / x.kmProg); }
       return s;
-    }, { hp: 0, hi: 0, n: 0, hpH: 0, ht: 0, kmP: 0, kmU: 0 });
+    }, { hp: 0, hi: 0, n: 0, hpH: 0, ht: 0 });
     t.hi = Math.max(0, Math.min(t.hi, t.hp));
     t.dm = t.hp ? (t.hp - t.hi) / t.hp : null;
-    // con horómetro: horas / programadas; solo equipos por km (transporte): km recorridos / km programados
-    t.u = t.hpH ? Math.min(1, t.ht / t.hpH) : t.kmP ? Math.min(1, t.kmU / t.kmP) : null;
+    t.u = t.hpH ? Math.min(1, t.ht / t.hpH) : null;
     t.mttr = t.n ? t.hi / t.n : null;
     t.mtbf = t.n ? (t.hp - t.hi) / t.n : null;
     return t;
@@ -2371,7 +2373,7 @@
     }).join('') + '</div>';
   }
   function porLineaTablero(ind) { return ind.filter(function (i) { return lineaTablero === 'TODAS' ? i.linea !== 'TRANSPORTE DE PERSONAL' : i.linea === lineaTablero; }); }
-  function indLinea(rg) { return porLineaTablero(indicadoresMantto(rg, false, lineaTablero === 'TRANSPORTE DE PERSONAL')); }
+  function indLinea(rg) { return porLineaTablero(indicadoresMantto(rg, false, true)); }
 
   /**
    * Horas trabajadas por familia (excavadoras, cargador, volquetes, camionetas…), dentro de la línea elegida.
@@ -2404,7 +2406,7 @@
       esc(lineaTablero === 'TODAS' ? 'Amarilla + blanca' : (nomL[lineaTablero] || '')) + '</span></div>' +
       (cuerpo || '<p class="mini">Sin datos en el periodo.</p>') +
       '<p class="mini" style="margin:0">' + (lineaTablero === 'TRANSPORTE DE PERSONAL' ? 'Se mide por kilómetros (odómetro): programado ' + n1(kmProgTurno()) + ' km por turno por día. La barra es la utilización: km recorridos / km programados.'
-        : 'Horas de horómetro de los partes (y del Excel KPI antes de la app). La barra es la utilización: horas trabajadas / programadas.') + '</p></div>';
+        : 'Horas de horómetro de los partes (y del Excel KPI antes de la app). Los equipos por odómetro (camión baranda, cisterna de combustible) muestran km recorridos / km programados (100 km por turno). La barra es la utilización.') + '</p></div>';
   }
 
   /** Tablero principal: indicadores con tendencia, Pareto y preventivos. */
@@ -2468,8 +2470,8 @@
       '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--aviso)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
       '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin dato: <strong>' + sinM + '</strong></div></div></div>' +
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
-      '<p class="mini">Línea amarilla y blanca con horómetro; transporte de personal (camionetas, minibús, ambulancia) por kilómetros, en su propia pestaña. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
-      'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas (en transporte: km recorridos / 100 km programados por turno). MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
+      '<p class="mini">Línea amarilla y blanca (los de odómetro, como camión baranda y cisterna de combustible, cuentan por km); transporte de personal (camionetas, minibús, ambulancia) por km, en su propia pestaña. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
+      'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas; en los equipos por km: km recorridos / 100 km programados por turno (al juntarlos, cada equipo pesa según sus horas programadas). MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
     marco('Tableros', h, { tablero: true });
   }
 
@@ -4442,7 +4444,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v69';
+  var VERSION_APP = 'axion-v70';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
