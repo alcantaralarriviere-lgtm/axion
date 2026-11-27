@@ -175,6 +175,27 @@ var Reglas = (function () {
     var f = a + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
     return isNaN(Date.parse(f + 'T12:00:00Z')) ? v : f;
   }
+  /**
+   * Fecha del papel corregida por sentido común frente a la fecha del parte digital.
+   * El año suele escribirse con 2 cifras o borroso y la IA lo lee mal ("26/11/20" → 2020): si el día y el mes calzan
+   * con un año cercano (el del parte, el anterior o el siguiente) a menos de 45 días, se usa ese año. Si aun así queda
+   * lejos (más de 45 días), la fecha leída no es creíble y se ignora (null). Sin fecha digital, se devuelve tal cual.
+   */
+  function fechaPapelCreible(fPapel, fDigital) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fPapel || ''))) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fDigital || ''))) return fPapel;
+    var dia = function (s) { return Date.parse(s + 'T12:00:00Z') / 86400000; };
+    var dd = dia(fDigital), lim = 45;
+    if (Math.abs(dia(fPapel) - dd) <= lim) return fPapel;
+    var y = Number(fDigital.substring(0, 4)), md = fPapel.substring(4), mejor = null, dist = Infinity;
+    [y, y - 1, y + 1].forEach(function (a) {
+      var f = a + md;
+      if (isNaN(Date.parse(f + 'T12:00:00Z'))) return;
+      var x = Math.abs(dia(f) - dd);
+      if (x < dist) { dist = x; mejor = f; }
+    });
+    return dist <= lim ? mejor : null;
+  }
   function resultadoIA(l) {
     if (!l || !l.Resultado) return null;
     if (typeof l.Resultado === 'object') return l.Resultado;
@@ -229,8 +250,9 @@ var Reglas = (function () {
       if (codV && normCodigo(codV) !== normCodigo(equipo.CodigoInterno) && normCodigo(codV) !== normCodigo(equipo.PlacaSerie))
         add('Equipo', 'INCONSISTENTE', 'El parte de papel indica el equipo "' + codV + '" pero el parte es de ' + equipo.CodigoInterno + '.');
       else if (!codV) add('Equipo', estadoDe(cod), 'No se pudo confirmar el código del equipo en el parte de papel.');
-      var fe = fechaIA(papel.fecha);
-      if (fe && fe !== p.FechaTrabajo) add('Fecha', 'INCONSISTENTE', 'El parte de papel tiene fecha ' + fe + ' y el parte digital ' + p.FechaTrabajo + '.');
+      var fe0 = fechaIA(papel.fecha), fe = fe0 ? fechaPapelCreible(fe0, p.FechaTrabajo) : fe0;
+      if (fe0 && !fe) add('Fecha', 'DUDOSO', 'La fecha leída en el papel (' + fe0 + ') no es creíble: revise la fecha a mano.');
+      else if (fe && fe !== p.FechaTrabajo) add('Fecha', 'INCONSISTENTE', 'El parte de papel tiene fecha ' + fe + ' y el parte digital ' + p.FechaTrabajo + '.');
       else if (!fe) add('Fecha', estadoDe(papel.fecha), 'No se pudo confirmar la fecha en el parte de papel.');
       var tu = valorIA(papel.turno);
       if (tu && tu !== p.Turno) add('Turno', 'INCONSISTENTE', 'El parte de papel indica turno ' + tu + ' y el parte digital ' + p.Turno + '.');
@@ -380,7 +402,7 @@ var Reglas = (function () {
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
-    valorIA: valorIA, fechaIA: fechaIA, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
+    valorIA: valorIA, fechaIA: fechaIA, fechaPapelCreible: fechaPapelCreible, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
     estadoCumplimiento: estadoCumplimiento, accionesPermitidas: accionesPermitidas,
     ESTADO_DESTINO: ESTADO_DESTINO, REQUIERE_COMENTARIO: REQUIERE_COMENTARIO };
 })();
