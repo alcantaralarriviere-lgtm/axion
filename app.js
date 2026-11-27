@@ -1565,7 +1565,8 @@
     var grupos = {};
     l.forEach(function (p) { (grupos[p.ObraID] = grupos[p.ObraID] || []).push(p); });
     marco('Revisar',
-      accesos((rol() === 'ADMIN' || rol() === 'GERENCIA' ? [['#/cumplimiento', 'calendar', 'Cumplimiento']] : [['#/mantto', 'activity', 'Tableros']])
+      accesos((rol() === 'ADMIN' ? [['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/combustible', 'fuel', 'Combustible']]
+        : rol() === 'GERENCIA' ? [['#/cumplimiento', 'calendar', 'Cumplimiento']] : [['#/mantto', 'activity', 'Tableros']])
         .concat([['#/equipos', 'truck', 'Equipos'], ['#/fallas', 'alert', 'Fallas'], ['#/reportes', 'file', 'Reportes']])) +
       barraBusq('revisar', 'Buscar equipo, operador, fecha o código…') +
       '<div class="segmento envuelve" role="group" aria-label="Filtro">' + filtros.map(function (x) {
@@ -3062,11 +3063,11 @@
     cont.onclick = function (e) { var b = e.target.closest('[data-quitar]'); if (b) b.closest('.lin-pm').remove(); };
   }
 
-  /** Combustible: se está integrando la app AXION Combustible (hojas A4 con IA, desvíos y análisis). */
+  /** Combustible (hoja A4 con IA, desvíos y análisis): pantalla propia, combustible.html, con la misma sesión de AXION. */
   function vCombustible() {
-    marco('Combustible', '<div class="vacio">' + ic('fuel') + '<h2>Combustible se está uniendo a AXION</h2>' +
-      '<p>Muy pronto aquí podrá fotografiar la hoja de despacho, revisar lo que leyó la IA y ver los consumos de cada equipo, con el mismo ingreso de AXION.</p>' +
-      '<p class="mini">Mientras tanto, siga usando la app AXION Combustible como hasta ahora: nada de lo que registre se pierde.</p></div>');
+    marco('Combustible', '<div class="vacio">' + ic('fuel') + '<h2>Abriendo Combustible…</h2></div>');
+    // la sesión se guarda en el celular antes de cambiar de pantalla (combustible.html la lee de ahí)
+    setTimeout(function () { location.replace('combustible.html'); }, 400);
   }
 
   /** Alta o edición de un usuario de Gerencia, Mecánico o Abastecedor. */
@@ -3968,7 +3969,7 @@
     }
     if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mecanica') return vMecanica(r[2]);
     if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mec-equipo' && r[2]) return vMecEquipo(r[2]);
-    if (rol() === 'GERENCIA' && r[1] === 'combustible') return vCombustible();
+    if ((rol() === 'GERENCIA' || rol() === 'ADMIN') && r[1] === 'combustible') return vCombustible();
     if (r[1] === 'parte' && r[2] === 'nuevo') { if (esOp) nuevoParte(q); else location.replace('#/revisar'); return; }
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
     if (r[1] === 'parte' && r[3] === 'ia') return vIA(r[2]);
