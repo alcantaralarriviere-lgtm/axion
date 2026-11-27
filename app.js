@@ -90,6 +90,19 @@
     'SIN PARTE (VENCIDO)': ['x', 'peligro'], 'SIN ENVIO (VENCIDO)': ['x', 'peligro'], 'PENDIENTE (EN PLAZO)': ['clock', ''], 'BORRADOR (EN PLAZO)': ['file', ''] };
   function chipCumpl(e) { var m = ESTC[e] || ['clock', '']; return '<span class="estado ' + m[1] + '">' + ic(m[0]) + esc(e.charAt(0) + e.slice(1).toLowerCase()) + '</span>'; }
 
+  // ------------------------------------------------------------ modo de color (Cuenta › Apariencia)
+  function temaElegido() { try { return localStorage.getItem('axion_tema') || 'oscuro'; } catch (x) { return 'oscuro'; } }
+  var mqClaro = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  function aplicarTema() {
+    var t = temaElegido();
+    if (t === 'auto') t = mqClaro && mqClaro.matches ? 'claro' : 'oscuro';
+    document.documentElement.setAttribute('data-tema', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', t === 'claro' ? '#F3F1EC' : '#0A0A0B');
+  }
+  aplicarTema();
+  if (mqClaro) { var alCambiarSO = function () { if (temaElegido() === 'auto') aplicarTema(); }; if (mqClaro.addEventListener) mqClaro.addEventListener('change', alCambiarSO); else if (mqClaro.addListener) mqClaro.addListener(alCambiarSO); }
+
   // ------------------------------------------------------------ marco
   function marco(titulo, cuerpo, op) {
     op = op || {};
@@ -3780,6 +3793,10 @@
         return '<div class="aviso peligro">' + ic('alert') + '<div class="crece"><strong>' + esc(r.item.op === 'accion' ? r.item.fila.Accion : (r.item.tabla || 'Foto')) + '</strong><div>' + esc(r.error) + '</div>' +
           (r.item.parte ? '<a href="#/parte/' + r.item.parte + '">Ver parte</a> · ' : '') + '<button class="btn chico fantasma" data-a="descartar" data-i="' + i + '">Entendido</button></div></div>';
       }).join('') + '</div>' : '') +
+      '<div class="etiqueta-seccion">Apariencia</div><div class="tarjeta" style="display:grid;gap:10px">' +
+      '<div class="segmento" role="group" aria-label="Modo de color">' + [['oscuro', 'Oscuro'], ['claro', 'Claro'], ['auto', 'Automático']].map(function (x) {
+        return '<button type="button" data-a="tema" data-v="' + x[0] + '" aria-pressed="' + (temaElegido() === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div><p class="mini" style="margin:0">Claro: fondo blanco, se lee mejor con sol. Oscuro: descansa la vista de noche. Automático: sigue al celular.</p></div>' +
       '<button class="btn peligro ancho" data-a="salir">' + ic('logout') + 'Cerrar sesión</button>' +
       '<p class="mini">AXION · app gratuita. Sus datos viajan cifrados (HTTPS) y se guardan en la cuenta de Google de la empresa.</p>');
   }
@@ -4134,6 +4151,7 @@
     admBajaEq: function (b) { formBaja('EQUIPO', b.dataset.k, equipo(b.dataset.k).CodigoInterno); },
     admSup: function (b) { formSupervisor(b.dataset.k || ''); },
     admBajaSup: function (b) { formBaja('SUPERVISOR', b.dataset.k, b.dataset.n); },
+    tema: function (b) { try { localStorage.setItem('axion_tema', b.dataset.v); } catch (x) { /* nada */ } aplicarTema(); render(); },
     fichaVer: function (b) { verFicha(b.dataset.k); },
     fichaSubir: function (b) { subirFicha(b.dataset.k); },
     fichaQuitar: function (b) {
@@ -4261,7 +4279,7 @@
   // GERENCIA: solo lectura. Se quitan de la pantalla todos los botones que crean, editan, eliminan o aprueban
   // (el servidor además los rechaza). Solo quedan los de navegar, filtrar, ver fotos y descargar el Excel.
   var LECTURA_GERENCIA = ['volver', 'ir', 'sync', 'verFoto', 'mecCat', 'mecKardexTipo', 'filtro', 'dia', 'periodoMantto', 'rangoAplicar',
-    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar', 'fichaVer'];
+    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar', 'fichaVer', 'tema'];
   function soloLectura() {
     if (rol() !== 'GERENCIA') return;
     document.querySelectorAll('#app [data-a]').forEach(function (el) { if (LECTURA_GERENCIA.indexOf(el.dataset.a) < 0) el.remove(); });
@@ -4371,7 +4389,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v64';
+  var VERSION_APP = 'axion-v65';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {

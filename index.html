@@ -12,6 +12,8 @@
   <!-- sin fuentes externas: la app abre al instante aun con poca señal (usa la letra del celular) -->
   <link rel="preload" as="image" href="fondo-movil.webp" type="image/webp">
   <link rel="stylesheet" href="styles.css">
+  <!-- modo de color antes de dibujar (evita un destello oscuro al abrir en modo claro) -->
+  <script>try { var t = localStorage.getItem('axion_tema') || 'oscuro'; if (t === 'auto') t = matchMedia('(prefers-color-scheme: light)').matches ? 'claro' : 'oscuro'; document.documentElement.setAttribute('data-tema', t); } catch (e) {}</script>
 </head>
 <body>
   <div id="app" aria-live="polite"><main class="ingreso"><div class="logo">AXION</div><p class="lema">Cargando…</p></main></div>
