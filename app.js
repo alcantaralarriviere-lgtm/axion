@@ -112,7 +112,7 @@
         : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros'], cuenta];
       var actual = location.hash.split('/').slice(0, 2).join('/');
       if (['#/fallas', '#/plan', '#/falla', '#/utilizacion', '#/equipos', '#/equipo', '#/reportes'].indexOf(actual) >= 0) actual = '#/mantto';
-      if (actual === '#/mec-equipo') actual = '#/mecanica';
+      if (actual === '#/mec-equipo' || actual === '#/mec-marca' || actual === '#/mec-modelo') actual = '#/mecanica';
       if (actual === '#/cumplimiento' && (r0 === 'ADMIN' || r0 === 'GERENCIA')) actual = '#/revisar';
       nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in"><span class="nav-marca">AXION</span>' + items.map(function (it) {
         var act = actual === it[0] || (it[0] === '#/parte/nuevo' && actual === '#/parte');
@@ -2848,15 +2848,26 @@
               '<button type="button" class="btn chico" data-a="mecItem" data-k="' + i.ItemID + '">' + ic('edit') + 'Editar</button></div>' : '') + '</div>';
         }).join('') : '<div class="vacio">' + ic('caja') + '<p>' + (m.INVENTARIO.length ? 'Nada con ese filtro.' : 'El inventario está vacío.' + (esAdminRol() ? ' Agregue el primer ítem.' : '')) + '</p></div>') + '</div>';
     } else if (tab === 'mantenimientos') {
-      // árbol: tipo de equipo › modelo › año › unidades en obra
+      // MARCAS › modelos › ficha técnica y plan PM › unidades (como un catálogo de taller)
+      var q0 = String(busq.mtto || '').trim();
+      h += '<p class="mini">Elija la marca: dentro verá sus modelos con la ficha técnica, el plan de mantenimiento (PM1–PM4) y cada unidad en obra.</p>' +
+        barraBusq('mtto', 'Buscar marca, modelo, código o placa…');
+      if (!q0) {
+        h += gridMarcas();
+      } else {
+        h += '<div class="lista"><div class="tarjeta uno-lista">' + equiposEnObra().filter(function (e) { return coincide('mtto', [e.CodigoInterno, e.PlacaSerie, e.Marca, e.Modelo, e.Familia].join(' ')); }).map(function (e) {
+          var p = pmDe(e);
+          return '<a class="fila-dato" href="#/mec-equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;align-items:center"><span><strong>' + esc(e.CodigoInterno) + '</strong> <span class="mini">' + esc((e.Marca || '') + ' ' + (e.Modelo || '')) + '</span><br><span class="mini">' + esc(e.Familia || '') + ' · ' + esc(txtLect(e, p.um === 'km')) + '</span></span>' + chipPM(p) + '</a>';
+        }).join('') + '</div></div>';
+      }
+    } else if (tab === 'mantenimientos-arbol') {
+      // (vista anterior por tipo de equipo; se conserva por si se necesita)
       var arbol = {};
       equiposEnObra().forEach(function (e) {
         var t = e.Familia || 'OTROS', mo = ((e.Marca || '') + ' ' + (e.Modelo || '')).trim() || 'Sin modelo', a = e.Anio || 'Sin año';
         ((arbol[t] = arbol[t] || {})[mo] = arbol[t][mo] || {})[a] = (arbol[t][mo][a] || []).concat([e]);
       });
-      h += '<p class="mini">Tipo de equipo › modelo › año › unidades en obra. Toque una unidad para ver su ficha, su plan y hacer el mantenimiento.</p>' +
-        barraBusq('mtto', 'Buscar código, placa o modelo…') +
-        '<div class="lista">' + Object.keys(arbol).sort().map(function (t) {
+      h += '<div class="lista">' + Object.keys(arbol).sort().map(function (t) {
           var nT = 0, alertaT = 0;
           var modelos = Object.keys(arbol[t]).sort().map(function (mo) {
             var anios = Object.keys(arbol[t][mo]).sort().map(function (a) {
@@ -2941,6 +2952,82 @@
     }
   }
 
+  // ------------------------------------------------------------ catálogo de taller: MARCA › MODELO › ficha + plan
+  /** { MARCA: { 'FAMILIA|MARCA|MODELO': [equipos] } } de los equipos en obra. */
+  function flotaPorMarca() {
+    var o = {};
+    equiposEnObra().forEach(function (e) {
+      var ma = String(e.Marca || 'SIN MARCA').toUpperCase().trim(), g = [String(e.Familia || '').toUpperCase(), ma, String(e.Modelo || '').toUpperCase()].join('|');
+      ((o[ma] = o[ma] || {})[g] = o[ma][g] || []).push(e);
+    });
+    return o;
+  }
+  function porAtender(us) { return us.filter(function (e) { var p = pmDe(e); return p.estado === 'VENCIDO' || p.estado === 'PROXIMO'; }).length; }
+  var COLOR_MARCA = ['#FFB000', '#3DDC97', '#5AB4FF', '#FF7A1A', '#C792EA', '#FF5A4E', '#E5C04A', '#4DD0E1'];
+  function monograma(ma) {
+    var c = COLOR_MARCA[Array.prototype.reduce.call(ma, function (s, ch) { return s + ch.charCodeAt(0); }, 0) % COLOR_MARCA.length];
+    var ini = ma.split(/\s+/).map(function (x) { return x.charAt(0); }).join('').substring(0, 3);
+    return '<span aria-hidden="true" style="display:grid;place-items:center;width:52px;height:52px;border-radius:14px;font-weight:900;font-size:18px;letter-spacing:.04em;color:#111;background:' + c + ';box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)">' + esc(ini) + '</span>';
+  }
+  function gridMarcas() {
+    var fl = flotaPorMarca();
+    return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">' + Object.keys(fl).sort().map(function (ma) {
+      var grupos = fl[ma], us = [].concat.apply([], Object.keys(grupos).map(function (g) { return grupos[g]; }));
+      var sinPlan = Object.keys(grupos).filter(function (g) { return !modeloDe(grupos[g][0]); }).length, al = porAtender(us);
+      return '<a class="tarjeta" href="#/mec-marca/' + encodeURIComponent(ma) + '" style="display:grid;gap:8px;justify-items:start;text-decoration:none;color:inherit">' + monograma(ma) +
+        '<strong style="font-size:15px">' + esc(ma) + '</strong><span class="mini">' + Object.keys(grupos).length + ' modelo(s) · ' + us.length + ' unidad(es)</span>' +
+        (al ? '<span class="estado alerta">' + al + ' por atender</span>' : sinPlan ? '<span class="estado">' + sinPlan + ' sin plan</span>' : '<span class="estado ok">Planes al día</span>') + '</a>';
+    }).join('') + '</div>';
+  }
+  function vMecMarca(ma) {
+    ma = decodeURIComponent(ma || '');
+    var grupos = flotaPorMarca()[ma] || {};
+    var h = '<div class="tarjeta uno-cabecera">' + monograma(ma) + '<div class="crece"><h3>' + esc(ma) + '</h3><div class="mini">' + Object.keys(grupos).length + ' modelo(s) en obra</div></div></div>' +
+      '<div class="lista">' + Object.keys(grupos).sort().map(function (g) {
+        var us = grupos[g], e0 = us[0], mod = modeloDe(e0), al = porAtender(us), p = g.split('|');
+        var resumen = mod && mod.FichaTecnica ? String(mod.FichaTecnica).split('\n').filter(function (x) { return /motor|potencia/i.test(x); })[0] || String(mod.FichaTecnica).split('\n')[0] : '';
+        return '<a class="tarjeta" href="#/mec-modelo/' + encodeURIComponent(g) + '" style="display:grid;gap:6px;text-decoration:none;color:inherit">' +
+          '<div class="entre"><h3>' + esc(p[2]) + ' <span class="mini">· ' + esc(p[0].charAt(0) + p[0].slice(1).toLowerCase()) + '</span></h3>' + ic('right') + '</div>' +
+          (resumen ? '<div class="mini">' + esc(resumen) + '</div>' : '') +
+          '<div class="mini">' + us.length + ' unidad(es): ' + esc(us.map(function (e) { return e.CodigoInterno; }).join(', ')) + '</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' + (mod ? '<span class="estado ok">PM cada ' + n1(mod.Intervalo) + ' ' + (mod.UM === 'KM' ? 'km' : 'h') + '</span>' : '<span class="estado">Sin plan</span>') +
+          (fichaDe(e0.EquipoID) || us.some(function (e) { return fichaDe(e.EquipoID); }) ? '<span class="estado">Ficha PDF</span>' : '') +
+          (al ? '<span class="estado alerta">' + al + ' por atender</span>' : '') + '</div></a>';
+      }).join('') + '</div>';
+    marco(ma, h, { volver: '#/mecanica/mantenimientos' });
+  }
+  function vMecModelo(g) {
+    g = decodeURIComponent(g || '');
+    var p = g.split('|'), us = (flotaPorMarca()[p[1]] || {})[g] || [];
+    if (!us.length) { location.replace('#/mecanica/mantenimientos'); return; }
+    var e0 = us[0], mod = modeloDe(e0), m = mec();
+    var seq = mod ? String(mod.SecuenciaPM).split(',') : [];
+    var pms = seq.filter(function (x, i) { return seq.indexOf(x) === i; }).sort();
+    var um = mod && mod.UM === 'KM' ? 'km' : 'h';
+    var ciclo = mod ? seq.map(function (x, i) { return n1(mod.Intervalo * (i + 1)) + ' ' + um + ' ' + x; }).join(' · ') : '';
+    var h = '<div class="tarjeta uno-cabecera">' + monograma(p[1]) + '<div class="crece"><h3>' + esc(p[1] + ' ' + p[2]) + '</h3><div class="mini">' + esc(p[0]) + ' · ' + us.length + ' unidad(es) en obra</div></div></div>' +
+      '<div class="tarjeta" style="display:grid;gap:8px"><h3>Ficha técnica</h3>' +
+      (mod && mod.FichaTecnica ? '<div class="uno-lista">' + String(mod.FichaTecnica).split('\n').filter(function (x) { return x.trim(); }).map(function (x) {
+        var i = x.indexOf(':');
+        return i > 0 && i < 40 ? '<div class="fila-dato"><span>' + esc(x.substring(0, i)) + '</span><span style="text-align:right">' + esc(x.substring(i + 1).trim()) + '</span></div>' : '<p class="mini" style="margin:4px 0">' + esc(x) + '</p>';
+      }).join('') + '</div>' : '<p class="sub" style="margin:0">Aún no hay ficha técnica para este modelo.</p>') +
+      (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecModelo" data-k="' + e0.EquipoID + '">' + ic('edit') + 'Editar ficha y plan</button>' : '') + '</div>' +
+      '<div class="tarjeta" style="display:grid;gap:8px"><h3>Plan de mantenimiento</h3>' +
+      (mod ? '<p class="sub" style="margin:0">PM cada <strong>' + n1(mod.Intervalo) + ' ' + um + '</strong> · ciclo: ' + esc(mod.SecuenciaPM) + '</p><p class="mini" style="margin:0">' + esc(ciclo) + ', y vuelve a empezar.</p>'
+        : '<p class="sub" style="margin:0">Este modelo aún no tiene plan.' + (esAdminRol() ? ' Créelo con "Editar ficha y plan".' : '') + '</p>') + '</div>' +
+      (mod ? pms.map(function (pm) {
+        var lin = m.PLAN_PM_LINEAS.filter(function (l) { return l.ModeloKey === mod.ModeloKey && l.PM === pm; }).sort(function (a, b) { return a.Orden - b.Orden; });
+        return '<details class="tarjeta"><summary class="entre" style="cursor:pointer;list-style:none"><h3>' + esc(pm) + ' <span class="mini">(' + lin.length + ' tarea(s))</span></h3>' + ic('right') + '</summary><div class="uno-lista" style="margin-top:8px">' +
+          (lin.length ? lin.map(function (l) { var it = itemInv(l.ItemID); return '<div class="fila-dato"><span>' + (l.Tipo === 'REPUESTO' ? ic('caja') : ic('check')) + ' ' + esc(l.Descripcion) + '</span><span>' + (l.Tipo === 'REPUESTO' ? n1(l.Cantidad) + ' ' + esc(it.Unidad || '') : '') + '</span></div>'; }).join('') : '<p class="mini">Sin tareas.</p>') + '</div>' +
+          (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecLineas" data-k="' + esc(mod.ModeloKey) + '" data-v="' + pm + '">' + ic('edit') + 'Editar checklist ' + esc(pm) + '</button>' : '') + '</details>';
+      }).join('') : '') +
+      '<div class="etiqueta-seccion">Unidades en obra</div><div class="tarjeta uno-lista">' + us.map(function (e) {
+        var pe = pmDe(e);
+        return '<a class="fila-dato" href="#/mec-equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;align-items:center"><span><strong>' + esc(e.CodigoInterno) + '</strong> <span class="mini">' + esc([e.Anio, e.PlacaSerie].filter(function (x) { return x; }).join(' · ')) + '</span><br><span class="mini">' + esc(txtLect(e, pe.um === 'km')) + '</span></span>' + chipPM(pe) + '</a>';
+      }).join('') + '</div>';
+    marco(p[1] + ' ' + p[2], h, { volver: '#/mec-marca/' + encodeURIComponent(p[1]) });
+  }
+
   /** Ficha de un equipo: plan, próximo PM, checklist por PM, historial y repuestos usados. */
   function vMecEquipo(id) {
     var e = equipo(id);
@@ -2978,7 +3065,7 @@
         var it = itemInv(x.ItemID);
         return '<div class="fila-dato"><span>' + fFH(x.FechaHora) + ' · ' + esc(nomTipo(x.Tipo)) + '</span><span>' + esc(it.Codigo) + ' ' + n1(x.Cantidad) + ' ' + esc(it.Unidad || '') + '</span></div>';
       }).join('') : '<p class="mini">Aún no se usaron repuestos en este equipo.</p>') + '</div>';
-    marco(e.CodigoInterno, h, { volver: '#/mecanica/mantenimientos' });
+    marco(e.CodigoInterno, h, { volver: '#/mec-modelo/' + encodeURIComponent([String(e.Familia || '').toUpperCase(), String(e.Marca || 'SIN MARCA').toUpperCase().trim(), String(e.Modelo || '').toUpperCase()].join('|')) });
   }
 
   // ------------------------------------------------------------ ficha técnica en PDF (una por equipo)
@@ -4060,6 +4147,8 @@
     if (rol() === 'MECANICO') {
       if (r[1] === 'mecanica') return vMecanica(r[2]);
       if (r[1] === 'mec-equipo' && r[2]) return vMecEquipo(r[2]);
+      if (r[1] === 'mec-marca' && r[2]) return vMecMarca(r[2]);
+      if (r[1] === 'mec-modelo' && r[2]) return vMecModelo(r[2]);
       if (r[1] === 'cuenta') return vCuenta();
       location.replace('#/mecanica'); return;
     }
@@ -4070,6 +4159,8 @@
     }
     if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mecanica') return vMecanica(r[2]);
     if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mec-equipo' && r[2]) return vMecEquipo(r[2]);
+    if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mec-marca' && r[2]) return vMecMarca(r[2]);
+    if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mec-modelo' && r[2]) return vMecModelo(r[2]);
     if ((rol() === 'GERENCIA' || rol() === 'ADMIN') && r[1] === 'combustible') return vCombustible();
     if (r[1] === 'parte' && r[2] === 'nuevo') { if (esOp) nuevoParte(q); else location.replace('#/revisar'); return; }
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
