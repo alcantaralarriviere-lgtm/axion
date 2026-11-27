@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es-PE">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoja de despacho de combustible</title>
+<style>
+  /* Plantilla A4 pensada para que la IA lea mejor: casillas grandes, una fila por despacho, columnas fijas. */
+  @page { size: A4 portrait; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; margin: 0; }
+  .hoja { width: 190mm; margin: 0 auto; padding: 4mm 0; }
+  .no-imp { text-align: center; padding: 12px; background: #fff3cd; margin-bottom: 8px; font-size: 14px; }
+  .no-imp button { font-size: 15px; padding: 8px 18px; margin-left: 10px; cursor: pointer; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2.5px solid #000; padding-bottom: 3mm; }
+  h1 { font-size: 18pt; margin: 0; letter-spacing: .5px; }
+  .sub { font-size: 9pt; }
+  .marcas { display: flex; justify-content: space-between; margin: 0 -2mm; }
+  .marca { width: 7mm; height: 7mm; border: 2.5mm solid #000; }
+  .enc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5mm 4mm; margin: 4mm 0; }
+  .c { border: 1.4px solid #000; height: 13mm; padding: 1mm 2mm; position: relative; }
+  .c span { font-size: 7.5pt; font-weight: bold; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { font-size: 7.5pt; border: 1.4px solid #000; background: #e6e6e6; padding: 1.5mm 1mm; text-transform: uppercase; }
+  td { border: 1.2px solid #000; height: 10.6mm; }
+  td.n { text-align: center; font-weight: bold; font-size: 9pt; background: #f3f3f3; }
+  .pie { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4mm; margin-top: 4mm; }
+  .firma { border-top: 1.4px solid #000; text-align: center; font-size: 8pt; padding-top: 1mm; margin-top: 14mm; }
+  .reglas { font-size: 7.5pt; margin-top: 3mm; color: #333; }
+  @media print { .no-imp { display: none; } }
+</style>
+</head>
+<body>
+<div class="no-imp">Imprima esta hoja en A4. Con este formato la lectura automática es más precisa. <button onclick="print()">Imprimir</button></div>
+<div class="hoja">
+  <div class="marcas"><div class="marca"></div><div class="marca"></div></div>
+  <header><div><h1>DESPACHO DE COMBUSTIBLE</h1><div class="sub">Un despacho por fila · números claros · galones (no soles)</div></div><div class="sub">N° ________</div></header>
+  <div class="enc">
+    <div class="c"><span>Fecha (día/mes/año)</span></div>
+    <div class="c"><span>Obra</span></div>
+    <div class="c"><span>Abastecedor</span></div>
+    <div class="c"><span>Cisterna / surtidor (placa)</span></div>
+    <div class="c"><span>Contómetro inicial (gal)</span></div>
+    <div class="c"><span>Contómetro final (gal)</span></div>
+  </div>
+  <table>
+    <colgroup><col style="width:7mm"><col style="width:17mm"><col style="width:30mm"><col style="width:40mm"><col style="width:30mm"><col style="width:24mm"><col style="width:22mm"><col></colgroup>
+    <thead><tr><th>N°</th><th>Hora</th><th>Código / placa del equipo</th><th>Operador / chofer</th><th>Horómetro o km</th><th>Galones</th><th>Firma</th><th>Obs.</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">2</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">3</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">4</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">5</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">6</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">7</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">8</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">9</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">10</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">11</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">12</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">13</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">14</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">15</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">16</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">17</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="n">18</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    </tbody>
+    <tfoot><tr><th colspan="5" style="text-align:right">TOTAL GALONES</th><td></td><td colspan="2"></td></tr></tfoot>
+  </table>
+  <div class="reglas">Si se equivoca, tache con una línea y escriba al lado (no encima). Escriba el 1 sin gancho, el 7 con raya y el 0 alargado. Decimales con coma.</div>
+  <div class="pie"><div class="firma">Abastecedor</div><div class="firma">Supervisor</div><div class="firma">V°B° Administración</div></div>
+  <div class="marcas" style="margin-top:4mm"><div class="marca"></div><div class="marca"></div></div>
+</div>
+</body>
+</html>
