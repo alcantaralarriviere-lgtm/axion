@@ -2062,7 +2062,7 @@
     return !c || c.h > 0 || c.k === 0;
   }
   /** Indicadores por equipo. Por defecto solo línea amarilla y blanca con horómetro; todos = true incluye todos los equipos. */
-  function indicadoresMantto(rg, todos) {
+  function indicadoresMantto(rg, todos, transporte) {
     var dias = [];
     for (var d = rg.desde; d <= rg.hasta; d = R.sumarDias(d, 1)) dias.push(d);
     var ahoraMs = Date.now();
@@ -2081,7 +2081,8 @@
     };
     return (cat().EQUIPOS || []).filter(function (e) {
       var l = lineaDe(e);
-      return (todos || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
+      // transporte de personal (camionetas, minibús, ambulancia): se mide por km, entra solo si se pide esa línea
+      return (todos || (transporte && l === 'TRANSPORTE DE PERSONAL') || (usaHorometro(e) && (l === 'LINEA AMARILLA' || l === 'LINEA BLANCA'))) && dias.some(function (x) { return enObra(e, x); });
     }).map(function (e) {
       var misPartes = partes.filter(function (p) { return p.EquipoID === e.EquipoID; });
       var ht = 0, km = 0, hprod = 0, conParte = {}, htDia = {};
@@ -2357,18 +2358,52 @@
   }
   var lineaTablero = 'TODAS';
   function filtroLinea() {
-    return '<div class="segmento" role="group" aria-label="Línea">' + [['TODAS', 'Amarilla + blanca'], ['LINEA AMARILLA', 'Amarilla'], ['LINEA BLANCA', 'Blanca']].map(function (x) {
+    return '<div class="segmento" role="group" aria-label="Línea">' + [['TODAS', 'Amarilla + blanca'], ['LINEA AMARILLA', 'Amarilla'], ['LINEA BLANCA', 'Blanca'], ['TRANSPORTE DE PERSONAL', 'Transporte de personal']].map(function (x) {
       return '<button type="button" data-a="lineaTablero" data-v="' + x[0] + '" aria-pressed="' + (x[0] === lineaTablero) + '">' + x[1] + '</button>';
     }).join('') + '</div>';
   }
-  function porLineaTablero(ind) { return ind.filter(function (i) { return lineaTablero === 'TODAS' || i.linea === lineaTablero; }); }
+  function porLineaTablero(ind) { return ind.filter(function (i) { return lineaTablero === 'TODAS' ? i.linea !== 'TRANSPORTE DE PERSONAL' : i.linea === lineaTablero; }); }
+  function indLinea(rg) { return porLineaTablero(indicadoresMantto(rg, false, lineaTablero === 'TRANSPORTE DE PERSONAL')); }
+
+  /**
+   * Horas trabajadas por familia (excavadoras, cargador, volquetes, camionetas…), dentro de la línea elegida.
+   * Con horómetro: horas trabajadas, programadas y utilización. Transporte de personal (por km): km recorridos y horas si las anotan.
+   */
+  function tarjetaFamilias(ind) {
+    var lineas = {};
+    ind.forEach(function (i) {
+      var l = i.linea || 'OTROS', f = String(i.eq.Familia || 'OTROS').toUpperCase();
+      var x = ((lineas[l] = lineas[l] || {})[f] = lineas[l][f] || { n: 0, ht: 0, htU: 0, hp: 0, km: 0, soloKm: true, hi: 0 });
+      x.n++; x.ht += i.ht; x.hi += i.hi; x.km += i.km;
+      if (!i.soloKm) { x.soloKm = false; x.hp += i.hp; x.htU += Math.min(i.ht, i.hp || i.ht); }
+    });
+    var nomL = { 'LINEA AMARILLA': 'Línea amarilla', 'LINEA BLANCA': 'Línea blanca', 'TRANSPORTE DE PERSONAL': 'Transporte de personal' };
+    var tit = function (s) { return s.charAt(0) + s.slice(1).toLowerCase(); };
+    var cuerpo = Object.keys(lineas).sort().map(function (l) {
+      var fams = Object.keys(lineas[l]).sort(function (a, b) { return (lineas[l][b].soloKm ? lineas[l][b].km : lineas[l][b].ht) - (lineas[l][a].soloKm ? lineas[l][a].km : lineas[l][a].ht); });
+      var tot = fams.reduce(function (s, f) { var x = lineas[l][f]; s.ht += x.ht; s.km += x.km; s.n += x.n; return s; }, { ht: 0, km: 0, n: 0 });
+      return (Object.keys(lineas).length > 1 ? '<div class="entre" style="margin-top:6px"><strong>' + esc(nomL[l] || tit(l)) + '</strong><span class="mini">' + tot.n + ' equipo(s) · ' + n1(tot.ht) + ' h' + (tot.km ? ' · ' + n1(tot.km) + ' km' : '') + '</span></div>' : '') +
+        fams.map(function (f) {
+          var x = lineas[l][f], u = x.hp ? Math.min(1, x.htU / x.hp) : null;
+          var dato = x.soloKm ? '<strong class="num">' + n1(x.km) + ' km</strong>' + (x.ht ? ' · ' + n1(x.ht) + ' h' : '')
+            : '<strong class="num">' + n1(x.ht) + ' h</strong> de ' + n1(x.hp) + ' h prog.';
+          return '<div style="display:grid;gap:4px"><div class="entre mini"><span><strong style="color:var(--texto)">' + esc(tit(f)) + '</strong> · ' + x.n + ' equipo(s)</span><span>' + dato + '</span></div>' +
+            (u !== null ? barra(u * 100, u >= 0.6 ? 'var(--ok)' : u >= 0.4 ? 'var(--aviso)' : 'var(--peligro)', pct1(u)) : '') + '</div>';
+        }).join('');
+    }).join('');
+    return '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Horas trabajadas por familia</h3><span class="mini">' +
+      esc(lineaTablero === 'TODAS' ? 'Amarilla + blanca' : (nomL[lineaTablero] || '')) + '</span></div>' +
+      (cuerpo || '<p class="mini">Sin datos en el periodo.</p>') +
+      '<p class="mini" style="margin:0">' + (lineaTablero === 'TRANSPORTE DE PERSONAL' ? 'Se mide por kilómetros recorridos (odómetro); las horas salen si el parte las anota.'
+        : 'Horas de horómetro de los partes (y del Excel KPI antes de la app). La barra es la utilización: horas trabajadas / programadas.') + '</p></div>';
+  }
 
   /** Tablero principal: indicadores con tendencia, Pareto y preventivos. */
   function vMantto() {
     var rg = rangoMantto();
     var eqs = equiposObra();
-    var ind = porLineaTablero(indicadoresMantto(rg));
-    var ant = porLineaTablero(indicadoresMantto(rangoAnterior(rg)));
+    var ind = indLinea(rg);
+    var ant = indLinea(rangoAnterior(rg));
     var t = totalesKPI(ind), ta = totalesKPI(ant);
     var se = serieKPI(ind, rg);
     var et = se.puntos.map(function (p) { return p.et; });
@@ -2399,6 +2434,7 @@
       kpiTend(t.mtbf === null ? '—' : n1(t.mtbf) + ' h', 'MTBF (entre fallas)', t.mtbf, ta.mtbf, true) +
       kpiTend(String(t.n), 'Fallas', t.n, ta.n, false) +
       kpiTend(n1(t.hi) + ' h', 'Horas paradas', t.hi, ta.hi, false) + '</div>' +
+      tarjetaFamilias(ind) +
       '<div class="tarjeta" style="display:grid;gap:8px"><div class="entre"><h3>Disponibilidad y utilización</h3><span class="mini">' + nomModo + '</span></div>' +
       graficoLineas(et, [{ nombre: 'Disponibilidad', color: 'var(--ok)', valores: se.puntos.map(function (p) { return p.dm; }) },
         { nombre: 'Utilización', color: 'var(--texto)', valores: se.puntos.map(function (p) { return p.u; }) }],
@@ -2423,7 +2459,7 @@
       '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--aviso)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
       '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin dato: <strong>' + sinM + '</strong></div></div></div>' +
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
-      '<p class="mini">Línea amarilla y blanca con horómetro. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
+      '<p class="mini">Línea amarilla y blanca con horómetro; transporte de personal (camionetas, minibús, ambulancia) por kilómetros, en su propia pestaña. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
       'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas. MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
     marco('Tableros', h, { tablero: true });
   }
@@ -4397,7 +4433,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v67';
+  var VERSION_APP = 'axion-v68';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
