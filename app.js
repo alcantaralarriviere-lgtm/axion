@@ -225,30 +225,72 @@
     }
   }
 
-  // ------------------------------------------------------------ ingreso
+  // ------------------------------------------------------------ ingreso: primero "¿qué usuario es?", luego sus datos
+  // Cada tipo de usuario entra con un dato distinto (lo valida el servidor igual; esto solo guía y evita errores de tipeo).
+  var TIPOS_INGRESO = [
+    { k: 'OPERADOR', t: 'Operador', i: 'truck', dato: 'cel', clave: 'La contraseña general que le dio el administrador.' },
+    { k: 'MECANICO', t: 'Mecánico', i: 'wrench', dato: 'dni', clave: 'La contraseña ICONSER.' },
+    { k: 'ABASTECEDOR', t: 'Abastecedor', i: 'fuel', dato: 'cel', clave: 'La contraseña general que le dio el administrador.' },
+    { k: 'SUPERVISOR', t: 'Supervisor', i: 'checkc', dato: 'correo', clave: 'La contraseña ICONSER (o la suya, si ya la cambió).' },
+    { k: 'GERENCIA', t: 'Gerencia', i: 'activity', dato: 'correo', clave: 'La contraseña ICONSER (o la suya, si ya la cambió).' },
+    { k: 'ADMIN', t: 'Administrador', i: 'users', dato: 'correo', clave: 'Su contraseña de administrador.' }
+  ];
+  var DATO_INGRESO = {
+    cel: { et: 'Número de celular', ph: '9XX XXX XXX', modo: 'tel', tipo: 'tel', ok: function (v) { return /^9\d{8}$/.test(v.replace(/\D/g, '').slice(-9)); }, mal: 'Escriba su celular: 9 dígitos y empieza con 9.' },
+    dni: { et: 'Número de DNI', ph: '8 dígitos', modo: 'numeric', tipo: 'text', ok: function (v) { return /^\d{8}$/.test(v.replace(/[\s.-]/g, '')); }, mal: 'Escriba su DNI: 8 dígitos.' },
+    correo: { et: 'Correo', ph: 'nombre@correo.com', modo: 'email', tipo: 'email', ok: function (v) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()); }, mal: 'Escriba su correo completo (con @).' }
+  };
+  function tipoIngreso() {
+    var k = '';
+    try { k = localStorage.getItem('axion_tipo') || ''; } catch (x) { /* nada */ }
+    return TIPOS_INGRESO.filter(function (x) { return x.k === k; })[0] || null;
+  }
   function vIngreso(msg) {
-    app.innerHTML = '<main class="ingreso"><div class="ingreso-fondo" aria-hidden="true"></div>' +
-      '<div class="cab-ingreso"><div class="marca-ingreso"><i aria-hidden="true"></i><div class="logo">AXION</div></div><p class="lema">Partes diarios y control de maquinaria</p></div>' +
-      '<form class="tarjeta acceso-3d" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
-      '<h2>Ingresar</h2>' +
-      '<label class="campo"><span>Celular o DNI</span><input name="email" type="text" autocomplete="username" inputmode="tel" required placeholder="Celular (9 dígitos) o DNI (8)" value="' + esc(ultimoUsuario()) + '">' +
-      '<span class="ayuda">Operadores con su celular · mecánicos con su DNI · administrador y gerencia con su correo.</span></label>' +
+    var tp = tipoIngreso();
+    var cab = '<main class="ingreso"><div class="ingreso-fondo" aria-hidden="true"></div>' +
+      '<div class="cab-ingreso"><div class="marca-ingreso"><i aria-hidden="true"></i><div class="logo">AXION</div></div><p class="lema">Partes diarios y control de maquinaria</p></div>';
+    var pie = '<a class="descubre" href="descubre.html">Conozca cómo funciona AXION <b aria-hidden="true">→</b></a></main>';
+    // paso 1: ¿qué usuario es?
+    if (!tp) {
+      app.innerHTML = cab + '<div class="tarjeta acceso-3d" style="display:grid;gap:14px"><h2>¿Qué usuario es?</h2>' +
+        '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' + TIPOS_INGRESO.map(function (x) {
+          return '<button type="button" class="btn ancho" data-tipo="' + x.k + '" style="min-height:60px;display:flex;gap:8px;justify-content:flex-start;padding:10px;font-size:13.5px;white-space:nowrap">' + ic(x.i) + '<span style="text-align:left;overflow:hidden;text-overflow:ellipsis">' + x.t + '</span></button>';
+        }).join('') + '</div>' + (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
+        '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></div>' + pie;
+      relieveIngreso();
+      Array.prototype.forEach.call(app.querySelectorAll('[data-tipo]'), function (b) {
+        b.onclick = function () { try { localStorage.setItem('axion_tipo', b.getAttribute('data-tipo')); } catch (x) { /* nada */ } vIngreso(); };
+      });
+      return;
+    }
+    // paso 2: sus datos, según el tipo
+    var dt = DATO_INGRESO[tp.dato];
+    var ult = ultimoUsuario();
+    if (ult && !dt.ok(ult)) ult = '';   // lo guardado era de otro tipo de usuario
+    app.innerHTML = cab + '<form class="tarjeta acceso-3d" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
+      '<div class="entre"><h2 style="display:flex;gap:10px;align-items:center">' + ic(tp.i) + tp.t + '</h2>' +
+      '<button type="button" class="btn chico fantasma" id="cambiarTipo">Cambiar</button></div>' +
+      '<label class="campo"><span>' + dt.et + '</span><input name="email" type="' + dt.tipo + '" autocomplete="username" inputmode="' + dt.modo + '" required placeholder="' + dt.ph + '" value="' + esc(ult) + '"></label>' +
       '<label class="campo"><span>Contraseña</span><input name="codigo" type="password" autocomplete="current-password" required>' +
-      '<span class="ayuda">La primera vez use la contraseña que le dio el administrador; luego creará la suya.</span></label>' +
+      '<span class="ayuda">' + esc(tp.clave) + (tp.k === 'OPERADOR' || tp.k === 'ABASTECEDOR' ? ' Luego podrá crear la suya.' : '') + '</span></label>' +
       (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
       '<button class="btn primario ancho" type="submit">Ingresar</button>' +
-      '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form>' +
-      '<a class="descubre" href="descubre.html">Conozca cómo funciona AXION <b aria-hidden="true">→</b></a></main>';
+      '<p class="mini">La primera vez necesita señal. Después la app funciona sin internet.</p></form>' + pie;
     relieveIngreso();
+    document.getElementById('cambiarTipo').onclick = function () { try { localStorage.removeItem('axion_tipo'); } catch (x) { /* nada */ } vIngreso(); };
     document.getElementById('fIngreso').onsubmit = function (e) {
       e.preventDefault();
       var f = new FormData(e.target);
+      var usuario = String(f.get('email')).trim();
+      if (!dt.ok(usuario)) { vIngreso(dt.mal); return; }
+      if (!String(f.get('codigo') || '').trim()) { vIngreso('Escriba su contraseña.'); return; }
       var b = e.target.querySelector('button[type="submit"]');  // no el ojito de la contraseña
       b.disabled = true; b.textContent = 'Ingresando…';
-      var usuario = String(f.get('email')).trim();
       try { localStorage.setItem('axion_usuario', usuario); } catch (x) { /* sin almacenamiento */ }
       claveTemporal = String(f.get('codigo'));
       N.ingresar(usuario, claveTemporal).then(function (r) {
+        // si eligió otro tipo, se recuerda el que de verdad tiene (para la próxima vez)
+        if (perfil().Rol && perfil().Rol !== tp.k) { try { localStorage.setItem('axion_tipo', perfil().Rol); } catch (x) { /* nada */ } }
         if (!(r && r.debeCambiar)) { claveTemporal = ''; location.hash = rol() === 'OPERADOR' ? '#/inicio' : '#/revisar'; }
         render();
       }, function (err) { claveTemporal = ''; vIngreso(err.message); });
@@ -4272,7 +4314,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v60';
+  var VERSION_APP = 'axion-v61';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
