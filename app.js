@@ -33,7 +33,10 @@
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.8"/><path d="M16.5 14.6c2.9.2 5 1.9 5 4.9"/>',
     building: '<path d="M4 21V5l8-3v19M12 9l8 3v9M2 21h20M8 8h.01M8 12h.01M8 16h.01M16 14h.01M16 18h.01"/>',
-    move: '<path d="M5 12h14M13 6l6 6-6 6"/>'
+    move: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    caja: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+    kardex: '<path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/>',
+    salida: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 21h16"/>'
   };
   function ic(n) { return '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P[n] || '') + '</svg>'; }
   function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -96,13 +99,21 @@
     var sync = N.ocupado() ? 'Sincronizando…' : (!online ? 'Sin señal' : (pend ? pend + ' por enviar' : 'Al día'));
     var nav = '';
     if (!op.sinNav) {
-      var items = rol() === 'OPERADOR'
+      var r0 = rol(), cuenta = ['#/cuenta', 'user', 'Cuenta', s.rechazados.length];
+      var items = r0 === 'OPERADOR'
         // sin "Nuevo parte": en Inicio se toca el equipo y el parte se abre solo
-        ? [['#/inicio', 'home', 'Inicio'], ['#/partes', 'list', 'Mis partes', obsCount()], ['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]
-        : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros']]
-          .concat(rol() === 'ADMIN' ? [['#/admin', 'users', 'Administrar']] : []).concat([['#/cuenta', 'user', 'Cuenta', s.rechazados.length]]);
+        ? [['#/inicio', 'home', 'Inicio'], ['#/partes', 'list', 'Mis partes', obsCount()], cuenta]
+        : r0 === 'MECANICO' ? [['#/mecanica', 'wrench', 'Mecánica'], cuenta]
+        : r0 === 'ABASTECEDOR' ? [['#/combustible', 'fuel', 'Combustible'], cuenta]
+        // administrador y gerencia: Cumplimiento pasa a los accesos de Revisar para que entre Mecánica en la barra
+        : r0 === 'ADMIN' || r0 === 'GERENCIA'
+          ? [['#/revisar', 'checkc', 'Revisar', r0 === 'ADMIN' ? porRevisarCount() : 0], ['#/mantto', 'activity', 'Tableros'], ['#/mecanica', 'wrench', 'Mecánica']]
+            .concat(r0 === 'ADMIN' ? [['#/admin', 'users', 'Administrar']] : [['#/combustible', 'fuel', 'Combustible']]).concat([cuenta])
+        : [['#/revisar', 'checkc', 'Revisar', porRevisarCount()], ['#/cumplimiento', 'calendar', 'Cumplimiento'], ['#/mantto', 'activity', 'Tableros'], cuenta];
       var actual = location.hash.split('/').slice(0, 2).join('/');
       if (['#/fallas', '#/plan', '#/falla', '#/utilizacion', '#/equipos', '#/equipo', '#/reportes'].indexOf(actual) >= 0) actual = '#/mantto';
+      if (actual === '#/mec-equipo') actual = '#/mecanica';
+      if (actual === '#/cumplimiento' && (r0 === 'ADMIN' || r0 === 'GERENCIA')) actual = '#/revisar';
       nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in"><span class="nav-marca">AXION</span>' + items.map(function (it) {
         var act = actual === it[0] || (it[0] === '#/parte/nuevo' && actual === '#/parte');
         return '<a href="' + it[0] + '"' + (act ? ' aria-current="page"' : '') + '>' + ic(it[1]) + '<span>' + it[2] + '</span>' +
@@ -1554,7 +1565,8 @@
     var grupos = {};
     l.forEach(function (p) { (grupos[p.ObraID] = grupos[p.ObraID] || []).push(p); });
     marco('Revisar',
-      accesos([['#/mantto', 'activity', 'Tableros'], ['#/equipos', 'truck', 'Equipos'], ['#/fallas', 'alert', 'Fallas'], ['#/reportes', 'file', 'Reportes']]) +
+      accesos((rol() === 'ADMIN' || rol() === 'GERENCIA' ? [['#/cumplimiento', 'calendar', 'Cumplimiento']] : [['#/mantto', 'activity', 'Tableros']])
+        .concat([['#/equipos', 'truck', 'Equipos'], ['#/fallas', 'alert', 'Fallas'], ['#/reportes', 'file', 'Reportes']])) +
       barraBusq('revisar', 'Buscar equipo, operador, fecha o código…') +
       '<div class="segmento envuelve" role="group" aria-label="Filtro">' + filtros.map(function (x) {
         return '<button type="button" data-a="filtro" data-v="' + x[0] + '" aria-pressed="' + (x[0] === f[0]) + '">' + x[1] + ' (' + N.filas('PARTES_DIARIOS', function (p) { return x[2](p) && pasa(p); }).length + ')</button>';
@@ -2546,7 +2558,7 @@
     }).join('') + '</div>';
   }
   function pestanasAdmin(act) {
-    return '<div class="segmento pestanas" role="group" aria-label="Administrar">' + [['operadores', 'Operadores'], ['equipos', 'Equipos'], ['supervisores', 'Supervisores'], ['obras', 'Obras']].map(function (x) {
+    return '<div class="segmento pestanas" role="group" aria-label="Administrar">' + [['operadores', 'Operadores'], ['equipos', 'Equipos'], ['supervisores', 'Supervisores'], ['otros', 'Gerencia, mecánicos y abastecedores'], ['obras', 'Obras']].map(function (x) {
       return '<button type="button" data-a="ir" data-h="#/admin/' + x[0] + '" aria-pressed="' + (x[0] === act) + '">' + x[1] + '</button>';
     }).join('') + '</div>';
   }
@@ -2650,7 +2662,7 @@
             '<div class="icono-caja">' + ic('checkc') + '</div><div class="crece"><h3 style="white-space:normal">' + esc(s.Nombre) + '</h3><div class="mini">' + esc(s.Email) + ' · ' +
             esc(s.Obras.map(function (id) { return busca('OBRAS', 'ObraID', id).CodigoObra || nombreObra(id); }).join(', ') || 'sin obra') + '</div></div>' + chipEstadoAdmin(s.Estado) + '</div></button>';
         }).join('') : '<div class="vacio"><p>Aún no hay supervisores.</p></div>') + '</div>';
-    } else {
+    } else if (tab !== 'otros') {  // obras
       var cuenta = function (id) {
         return { eq: (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA' && obraDeEq(e) === id; }).length,
           op: adm().operadores.filter(function (o) { return o.Estado === 'ACTIVO' && o.ObraID === id; }).length,
@@ -2667,8 +2679,413 @@
             '<div class="kpi"><div class="v num">' + c.sup + '</div><div class="l">Supervisores</div></div></div>' +
             '<div class="mini">Frentes: ' + esc(fr.map(function (f) { return f.Nombre; }).join(', ') || '—') + '</div></button>';
         }).join('') + '</div>';
+    } else if (tab === 'otros') {
+      var otros = (adm().otros || []);
+      var nombresRol = { GERENCIA: 'Gerencia', MECANICO: 'Mecánico', ABASTECEDOR: 'Abastecedor' };
+      var actO = otros.filter(function (u) { return u.Estado === 'ACTIVO'; });
+      var lista = otros.filter(function (u) { return pasaEstado(u.Estado === 'ACTIVO'); }).sort(function (a, b) { return (a.Rol + a.Nombre).localeCompare(b.Rol + b.Nombre); });
+      h += '<div class="kpis">' + ['GERENCIA', 'MECANICO', 'ABASTECEDOR'].map(function (r) {
+          return kpiA(actO.filter(function (u) { return u.Rol === r; }).length, nombresRol[r] + (r === 'GERENCIA' ? '' : 's') + ' activos', 'acento');
+        }).join('') + '</div>' + segEstado(actO.length, otros.length - actO.length) +
+        '<button type="button" class="btn primario ancho" data-a="admOtro">' + ic('plus') + 'Agregar usuario</button>' +
+        '<p class="mini"><strong>Gerencia</strong> entra con su correo y la contraseña ICONSER y ve todo sin poder cambiar nada. ' +
+        '<strong>Mecánicos</strong> y <strong>abastecedores</strong> entran con su celular y la contraseña general.</p>' +
+        '<div class="lista">' + (lista.length ? lista.map(function (u) {
+          return '<div class="tarjeta" style="display:grid;gap:10px"><div class="parte-fila"><div class="icono-caja">' + ic(u.Rol === 'MECANICO' ? 'wrench' : u.Rol === 'ABASTECEDOR' ? 'fuel' : 'activity') + '</div>' +
+            '<div class="crece"><h3 style="white-space:normal">' + esc(u.Nombre) + '</h3><div class="mini">' + esc(nombresRol[u.Rol]) + ' · ' + esc(u.Email || u.Telefono) + '</div></div>' +
+            '<div class="der">' + chipEstadoAdmin(u.Estado) + '</div></div><div class="acciones dos-col">' +
+            '<button type="button" class="btn chico" data-a="admOtro" data-k="' + u.UsuarioID + '">' + ic('edit') + 'Editar</button>' +
+            (u.Estado === 'ACTIVO' ? '<button type="button" class="btn chico peligro" data-a="admOtroBaja" data-k="' + u.UsuarioID + '" data-n="' + esc(u.Nombre) + '">Dar de baja</button>'
+              : '<button type="button" class="btn chico" data-a="admOtroAlta" data-k="' + u.UsuarioID + '">Reactivar</button>') + '</div>' +
+            '<button type="button" class="btn chico fantasma" data-a="admClave" data-k="' + u.UsuarioID + '" data-n="' + esc(u.Nombre) + '">' + ic('refresh') + 'Restablecer contraseña</button></div>';
+        }).join('') : '<div class="vacio"><p>Aún no hay usuarios de estos roles.</p></div>') + '</div>';
     }
     marco('Administrar', h, { tablero: true });
+  }
+  // ============================================================ MÓDULO MECÁNICA
+  // Inventario, uso de stock (préstamo de herramientas), kardex con anulaciones, árbol de equipos con fichas y planes PM,
+  // cierre de mantenimientos y tablero. El stock siempre se cambia EN LÍNEA (el servidor valida que alcance).
+  var catInv = 'TODAS', tipoKardex = 'TODOS';
+  function mec() { return cat().MECANICA || { INVENTARIO: [], CATEGORIAS: [], MOTIVOS: [], MOVIMIENTOS: [], MODELOS_PM: [], PLAN_PM_LINEAS: [], MTTO_MEC: [] }; }
+  function puedeOperarMec() { return rol() === 'ADMIN' || rol() === 'MECANICO'; }
+  function esAdminRol() { return rol() === 'ADMIN'; }
+  function itemInv(id) { return mec().INVENTARIO.filter(function (i) { return i.ItemID === id; })[0] || {}; }
+  function bajoMinimo(i) { var m = R.num(i.StockMinimo); return m !== null && Number(i.StockActual || 0) < m; }
+  function esHerr(i) { return i.EsHerramienta === true || /herramient/i.test(String(i.Categoria || '')); }
+  function mecOp(op, datos, alTerminar) {
+    if (!navigator.onLine) { toast('Se necesita señal: el stock se valida en el servidor al momento.'); return; }
+    toast('Guardando…');
+    N.api('mecanica', Object.assign({ op: op }, datos)).then(function (r) {
+      S().cat.MECANICA = r.mecanica;
+      if (r.mantenimientos) S().cat.MANTENIMIENTOS = r.mantenimientos;
+      toast(r.mensaje);
+      if (alTerminar) alTerminar(r);
+      render();
+      N.sincronizar();  // guarda en el celular y trae los equipos al día
+    }, function (e) { toast(e.message); });
+  }
+  /** Ficha/plan del modelo de un equipo (su año; si no, el de todos los años). */
+  function modeloDe(e) {
+    var ms = mec().MODELOS_PM, k1 = R.modeloKey(e.Familia, e.Marca, e.Modelo, e.Anio), k2 = R.modeloKey(e.Familia, e.Marca, e.Modelo, '');
+    return ms.filter(function (m) { return m.ModeloKey === k1; })[0] || ms.filter(function (m) { return m.ModeloKey === k2; })[0] || null;
+  }
+  /** Qué PM toca: con el plan del modelo (intervalo y secuencia) o, si no hay, con el plan del equipo (Excel). */
+  function pmDe(e) {
+    var mod = modeloDe(e), mt = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
+    var porKm = (mod ? mod.UM : mt.UM) === 'KM' || (!e.TieneHorometro && e.TieneOdometro);
+    var actual = R.num(porKm ? e.UltimoOdometro : e.UltimoHorometro);
+    var um = porKm ? 'km' : 'h';
+    if (mod) { var p = R.proximoPM(mod.Intervalo, mod.SecuenciaPM, mt.LecturaUltimo, actual); if (p) { p.um = um; p.actual = actual; return p; } }
+    if (R.num(mt.LecturaProxima) !== null) {
+      var f = actual === null ? null : Math.round((Number(mt.LecturaProxima) - actual) * 10) / 10;
+      var I = R.num(mt.Intervalo) || 250;
+      return { pm: mt.ServicioProximo || 'PM', lectura: Number(mt.LecturaProxima), faltan: f, um: um, actual: actual,
+        estado: f === null ? 'SIN_LECTURA' : f <= 0 ? 'VENCIDO' : f <= Math.max(25, I * 0.1) ? 'PROXIMO' : 'OK' };
+    }
+    return { pm: '', lectura: null, faltan: null, estado: 'SIN_PLAN', um: um, actual: actual };
+  }
+  function chipPM(p) {
+    if (p.estado === 'SIN_PLAN') return '<span class="estado">Sin plan</span>';
+    if (p.estado === 'SIN_LECTURA') return '<span class="estado">' + esc(p.pm) + ' · sin lectura</span>';
+    var t = p.estado === 'VENCIDO' ? esc(p.pm) + ' vencido ' + n1(-p.faltan) + ' ' + p.um : esc(p.pm) + ' en ' + n1(p.faltan) + ' ' + p.um;
+    return '<span class="estado ' + (p.estado === 'VENCIDO' ? 'peligro' : p.estado === 'PROXIMO' ? 'alerta' : 'ok') + '">' + t + '</span>';
+  }
+  function equiposEnObra() {
+    return (cat().EQUIPOS || []).filter(function (e) { return e.Estado !== 'BAJA'; })
+      .sort(function (a, b) { return String(a.CodigoInterno).localeCompare(String(b.CodigoInterno), 'es', { numeric: true }); });
+  }
+  function nomTipo(t) { return { INGRESO: 'Ingreso', USO: 'Uso', MANTENIMIENTO: 'Mantenimiento', PRESTAMO: 'Préstamo', DEVOLUCION: 'Devolución', ANULACION: 'Anulación' }[t] || t; }
+
+  function pestanasMec(act) {
+    var r = rol();
+    var tabs = r === 'MECANICO' ? [['inventario', 'Inventario'], ['mantenimientos', 'Mantenimientos'], ['uso', 'Uso de stock']]
+      : [['tablero', 'Tablero'], ['inventario', 'Inventario'], ['mantenimientos', 'Mantenimientos']].concat(r === 'ADMIN' ? [['uso', 'Uso de stock']] : []).concat([['kardex', 'Kardex']]);
+    return '<div class="segmento pestanas" role="group" aria-label="Mecánica">' + tabs.map(function (x) {
+      return '<button type="button" data-a="ir" data-h="#/mecanica/' + x[0] + '" aria-pressed="' + (x[0] === act) + '">' + x[1] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function vMecanica(tab) {
+    var r = rol();
+    tab = tab || (r === 'MECANICO' ? 'inventario' : 'tablero');
+    if (r === 'MECANICO' && (tab === 'tablero' || tab === 'kardex')) tab = 'inventario';
+    if (tab === 'uso' && !puedeOperarMec()) tab = 'tablero';
+    var m = mec(), h = pestanasMec(tab);
+    var kpi = function (v, l, cls) { return '<div class="kpi"><div class="v num ' + (cls || '') + '">' + v + '</div><div class="l">' + l + '</div></div>'; };
+    if (tab === 'tablero') {
+      var bajos = m.INVENTARIO.filter(function (i) { return i.Estado !== 'INACTIVO' && bajoMinimo(i); });
+      var pms = equiposEnObra().map(function (e) { return { e: e, p: pmDe(e) }; });
+      var venc = pms.filter(function (x) { return x.p.estado === 'VENCIDO'; }), prox = pms.filter(function (x) { return x.p.estado === 'PROXIMO'; });
+      var prest = m.MOVIMIENTOS.filter(function (x) { return x.Tipo === 'PRESTAMO' && x.Estado === 'VIGENTE' && x.Devuelto !== true; });
+      var desde = R.sumarDias(hoy(), -30);
+      var salidas = m.MOVIMIENTOS.filter(function (x) { return x.Estado === 'VIGENTE' && (x.Tipo === 'USO' || x.Tipo === 'MANTENIMIENTO') && String(x.FechaHora).substring(0, 10) >= desde; });
+      var porEq = {}, porMec = {};
+      salidas.forEach(function (x) {
+        var k = x.EquipoID || '-', it = itemInv(x.ItemID);
+        (porEq[k] = porEq[k] || { n: 0, items: {} }).n++;
+        porEq[k].items[it.Codigo || x.ItemID] = { c: (porEq[k].items[it.Codigo || x.ItemID] || { c: 0 }).c + Number(x.Cantidad), u: it.Unidad || '' };
+        (porMec[x.NombreUsuario || x.Usuario] = porMec[x.NombreUsuario || x.Usuario] || { mov: 0, mtto: 0 }).mov++;
+      });
+      (m.MTTO_MEC || []).filter(function (x) { return String(x.Fecha).substring(0, 10) >= desde; }).forEach(function (x) {
+        (porMec[x.Mecanico] = porMec[x.Mecanico] || { mov: 0, mtto: 0 }).mtto++;
+      });
+      h += '<div class="kpis">' + kpi(bajos.length, 'Ítems bajo el mínimo', bajos.length ? 'acento' : '') + kpi(venc.length, 'PM vencidos', venc.length ? 'acento' : '') +
+        kpi(prox.length, 'PM próximos') + kpi(prest.length, 'Herramientas prestadas') + '</div>' +
+        '<div class="tarjeta"><h3>' + ic('alert') + ' Stock bajo el mínimo</h3>' + (bajos.length ? '<div class="uno-lista">' + bajos.map(function (i) {
+          return '<div class="fila-dato"><span>' + esc(i.Codigo) + ' · ' + esc(i.Descripcion) + '</span><span style="color:var(--peligro-texto);font-weight:800">' + n1(i.StockActual) + ' / mín. ' + n1(i.StockMinimo) + ' ' + esc(i.Unidad) + '</span></div>';
+        }).join('') + '</div>' : '<p class="mini">Todo el stock está sobre el mínimo.</p>') + '</div>' +
+        '<div class="tarjeta"><h3>' + ic('wrench') + ' PM vencidos y próximos</h3>' + (venc.length + prox.length ? '<div class="uno-lista">' + venc.concat(prox).sort(function (a, b) { return a.p.faltan - b.p.faltan; }).map(function (x) {
+          return '<a class="fila-dato" href="#/mec-equipo/' + x.e.EquipoID + '" style="text-decoration:none;color:inherit"><span>' + esc(x.e.CodigoInterno) + ' · ' + esc(x.e.Modelo) + '</span><span>' + chipPM(x.p) + '</span></a>';
+        }).join('') + '</div>' : '<p class="mini">Ningún equipo tiene PM vencido ni próximo.</p>') + '</div>' +
+        '<div class="tarjeta"><h3>' + ic('truck') + ' Consumo por equipo (30 días)</h3>' + (Object.keys(porEq).length ? '<div class="uno-lista">' + Object.keys(porEq).sort(function (a, b) { return porEq[b].n - porEq[a].n; }).slice(0, 15).map(function (k) {
+          var det = Object.keys(porEq[k].items).map(function (c) { return c + ' ' + n1(porEq[k].items[c].c) + ' ' + porEq[k].items[c].u; }).join(' · ');
+          return '<div class="fila-dato"><span>' + esc(equipo(k).CodigoInterno || k) + ' <span class="mini">(' + porEq[k].n + ' mov.)</span></span><span class="mini">' + esc(det) + '</span></div>';
+        }).join('') + '</div>' : '<p class="mini">Sin consumos en los últimos 30 días.</p>') + '</div>' +
+        '<div class="tarjeta"><h3>' + ic('user') + ' Consumo por mecánico (30 días)</h3>' + (Object.keys(porMec).length ? '<div class="uno-lista">' + Object.keys(porMec).sort().map(function (k) {
+          return '<div class="fila-dato"><span>' + esc(k) + '</span><span>' + porMec[k].mov + ' salida(s) · ' + porMec[k].mtto + ' mantenimiento(s)</span></div>';
+        }).join('') + '</div>' : '<p class="mini">Sin movimientos en los últimos 30 días.</p>') + '</div>';
+    } else if (tab === 'inventario') {
+      var cats = m.CATEGORIAS || [];
+      var items = m.INVENTARIO.filter(function (i) { return (catInv === 'TODAS' || i.Categoria === catInv) && coincide('inv', [i.Codigo, i.Descripcion, i.Categoria, i.ModelosCompatibles].join(' ')); })
+        .sort(function (a, b) { return (bajoMinimo(b) - bajoMinimo(a)) || String(a.Codigo).localeCompare(String(b.Codigo), 'es', { numeric: true }); });
+      h += (esAdminRol() ? '<div class="acciones dos-col"><button type="button" class="btn primario" data-a="mecItem">' + ic('plus') + 'Nuevo ítem</button>' +
+          '<button type="button" class="btn" data-a="mecCategorias">' + ic('edit') + 'Categorías</button></div>' : '') +
+        '<div class="segmento pestanas" role="group" aria-label="Categoría">' + ['TODAS'].concat(cats).map(function (c) {
+          return '<button type="button" data-a="mecCat" data-v="' + esc(c) + '" aria-pressed="' + (c === catInv) + '">' + esc(c === 'TODAS' ? 'Todas' : c) + '</button>';
+        }).join('') + '</div>' + barraBusq('inv', 'Buscar código, descripción o modelo…') +
+        '<div class="lista">' + (items.length ? items.map(function (i) {
+          var bajo = bajoMinimo(i);
+          return '<div class="tarjeta" style="display:grid;gap:8px' + (bajo ? ';border-color:rgba(255,90,78,.55)' : '') + '"><div class="parte-fila">' +
+            '<div class="icono-caja' + (bajo ? '' : ' acento') + '">' + ic(esHerr(i) ? 'wrench' : 'caja') + '</div><div class="crece"><h3 style="white-space:normal">' + esc(i.Codigo) + ' · ' + esc(i.Descripcion) + '</h3>' +
+            '<div class="mini">' + esc(i.Categoria) + (i.ModelosCompatibles ? ' · ' + esc(i.ModelosCompatibles) : '') + (i.Estado === 'INACTIVO' ? ' · inactivo' : '') + '</div></div>' +
+            '<div class="der"><span class="horas" style="' + (bajo ? 'color:var(--peligro-texto)' : '') + '">' + n1(i.StockActual) + ' ' + esc(i.Unidad) + '</span>' +
+            (bajo ? '<span class="estado peligro">Bajo mínimo (' + n1(i.StockMinimo) + ')</span>' : (R.num(i.StockMinimo) !== null ? '<span class="mini">mín. ' + n1(i.StockMinimo) + '</span>' : '')) + '</div></div>' +
+            (esAdminRol() ? '<div class="acciones dos-col"><button type="button" class="btn chico primario" data-a="mecIngreso" data-k="' + i.ItemID + '">' + ic('plus') + 'Ingreso</button>' +
+              '<button type="button" class="btn chico" data-a="mecItem" data-k="' + i.ItemID + '">' + ic('edit') + 'Editar</button></div>' : '') + '</div>';
+        }).join('') : '<div class="vacio">' + ic('caja') + '<p>' + (m.INVENTARIO.length ? 'Nada con ese filtro.' : 'El inventario está vacío.' + (esAdminRol() ? ' Agregue el primer ítem.' : '')) + '</p></div>') + '</div>';
+    } else if (tab === 'mantenimientos') {
+      // árbol: tipo de equipo › modelo › año › unidades en obra
+      var arbol = {};
+      equiposEnObra().forEach(function (e) {
+        var t = e.Familia || 'OTROS', mo = ((e.Marca || '') + ' ' + (e.Modelo || '')).trim() || 'Sin modelo', a = e.Anio || 'Sin año';
+        ((arbol[t] = arbol[t] || {})[mo] = arbol[t][mo] || {})[a] = (arbol[t][mo][a] || []).concat([e]);
+      });
+      h += '<p class="mini">Tipo de equipo › modelo › año › unidades en obra. Toque una unidad para ver su ficha, su plan y hacer el mantenimiento.</p>' +
+        barraBusq('mtto', 'Buscar código, placa o modelo…') +
+        '<div class="lista">' + Object.keys(arbol).sort().map(function (t) {
+          var nT = 0, alertaT = 0;
+          var modelos = Object.keys(arbol[t]).sort().map(function (mo) {
+            var anios = Object.keys(arbol[t][mo]).sort().map(function (a) {
+              var us = arbol[t][mo][a].filter(function (e) { return coincide('mtto', [e.CodigoInterno, e.PlacaSerie, e.Marca, e.Modelo, t].join(' ')); });
+              if (!us.length) return '';
+              nT += us.length;
+              var mod = modeloDe(us[0]);
+              return '<details class="historial-mas"' + (String(busq.mtto || '').trim() ? ' open' : '') + '><summary class="entre" style="padding:8px 0;border-bottom:1px solid var(--borde)"><span><strong>' + esc(a) + '</strong> <span class="mini">· ' + us.length + ' unidad(es)' + (mod ? ' · PM cada ' + n1(mod.Intervalo) + ' ' + (mod.UM === 'KM' ? 'km' : 'h') : ' · sin plan') + '</span></span>' + ic('right') + '</summary>' +
+                '<div class="uno-lista">' + us.map(function (e) {
+                  var p = pmDe(e); if (p.estado === 'VENCIDO' || p.estado === 'PROXIMO') alertaT++;
+                  return '<a class="fila-dato" href="#/mec-equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;align-items:center"><span><strong>' + esc(e.CodigoInterno) + '</strong><br><span class="mini">' + esc(e.PlacaSerie || '') + ' · ' + (p.actual !== null ? n1(p.actual) + ' ' + p.um : 'sin lectura') + '</span></span>' + chipPM(p) + '</a>';
+                }).join('') + '</div></details>';
+            }).join('');
+            return anios ? '<details class="historial-mas"' + (String(busq.mtto || '').trim() ? ' open' : '') + '><summary class="entre" style="padding:8px 0"><strong>' + esc(mo) + '</strong>' + ic('right') + '</summary><div style="padding-left:10px">' + anios + '</div></details>' : '';
+          }).join('');
+          return modelos ? '<details class="tarjeta"' + (String(busq.mtto || '').trim() ? ' open' : '') + '><summary class="entre" style="cursor:pointer;list-style:none"><h3>' + esc(t.charAt(0) + t.slice(1).toLowerCase()) + ' <span class="mini">(' + nT + ')</span></h3>' +
+            (alertaT ? '<span class="estado alerta">' + alertaT + ' por atender</span>' : ic('right')) + '</summary><div style="margin-top:8px">' + modelos + '</div></details>' : '';
+        }).join('') + '</div>';
+    } else if (tab === 'uso') {
+      var activos = m.INVENTARIO.filter(function (i) { return i.Estado !== 'INACTIVO'; }).sort(function (a, b) { return String(a.Codigo).localeCompare(String(b.Codigo), 'es', { numeric: true }); });
+      var prestamos = m.MOVIMIENTOS.filter(function (x) { return x.Tipo === 'PRESTAMO' && x.Estado === 'VIGENTE' && x.Devuelto !== true; });
+      var mios = m.MOVIMIENTOS.filter(function (x) { return x.Usuario === perfil().Email && x.Tipo !== 'ANULACION'; }).slice(-8).reverse();
+      h += '<form class="tarjeta" id="fUso" style="display:grid;gap:12px" novalidate><h3>' + ic('salida') + ' Sacar del almacén</h3>' +
+        campo('Ítem', '<select name="ItemID" required><option value="">Elija el ítem…</option>' + (m.CATEGORIAS || []).map(function (c) {
+          var de = activos.filter(function (i) { return i.Categoria === c; });
+          return de.length ? '<optgroup label="' + esc(c) + '">' + de.map(function (i) { return '<option value="' + esc(i.ItemID) + '"' + (Number(i.StockActual) <= 0 ? ' disabled' : '') + '>' + esc(i.Codigo + ' · ' + i.Descripcion + ' (hay ' + n1(i.StockActual) + ' ' + i.Unidad + ')') + '</option>'; }).join('') + '</optgroup>' : '';
+        }).join('') + '</select>', true) +
+        '<div class="dos">' + campo('Cantidad', '<input name="Cantidad" type="number" inputmode="decimal" step="0.1" min="0">', true) +
+        campo('Motivo', selHtml('Motivo', [['CORRECTIVO', 'Correctivo'], ['PREVENTIVO', 'Preventivo'], ['REPOSICION', 'Reposición'], ['OTRO', 'Otro']], 'CORRECTIVO'), true) + '</div>' +
+        campo('Equipo destino', '<select name="EquipoID" required><option value="">Elija el equipo…</option>' + equiposEnObra().map(function (e) {
+          return '<option value="' + esc(e.EquipoID) + '">' + esc(e.CodigoInterno + ' · ' + e.Familia.toLowerCase() + ' ' + (e.Modelo || '')) + '</option>';
+        }).join('') + '</select>', true) +
+        campo('Comentario (obligatorio si el motivo es "otro")', '<input name="Comentario" autocomplete="off">') +
+        '<p class="mini" id="usoAviso"></p><button type="submit" class="btn primario ancho">' + ic('check') + 'Registrar salida</button></form>' +
+        '<div class="etiqueta-seccion">Herramientas prestadas (' + prestamos.length + ')</div><div class="lista">' + (prestamos.length ? prestamos.map(function (x) {
+          var it = itemInv(x.ItemID);
+          return '<div class="tarjeta parte-fila"><div class="icono-caja">' + ic('wrench') + '</div><div class="crece"><h3 style="white-space:normal">' + esc(it.Codigo) + ' · ' + esc(it.Descripcion) + '</h3>' +
+            '<div class="mini">' + esc(equipo(x.EquipoID).CodigoInterno || '') + ' · ' + esc(x.NombreUsuario || x.Usuario) + ' · ' + fFH(x.FechaHora) + '</div></div>' +
+            '<button type="button" class="btn chico primario" data-a="mecDevolver" data-k="' + x.MovID + '">Devolver</button></div>';
+        }).join('') : '<p class="mini">No hay herramientas prestadas.</p>') + '</div>' +
+        (mios.length ? '<div class="etiqueta-seccion">Mis últimos movimientos</div><div class="tarjeta uno-lista">' + mios.map(function (x) {
+          var it = itemInv(x.ItemID);
+          return '<div class="fila-dato"><span>' + fFH(x.FechaHora) + ' · ' + esc(nomTipo(x.Tipo)) + (x.Estado === 'ANULADO' ? ' (anulado)' : '') + '</span><span>' + esc(it.Codigo) + ' ' + (x.Signo > 0 ? '+' : '−') + n1(x.Cantidad) + ' · ' + esc(equipo(x.EquipoID).CodigoInterno || '') + '</span></div>';
+        }).join('') + '</div>' : '');
+    } else if (tab === 'kardex') {
+      var tipos = ['TODOS', 'INGRESO', 'USO', 'MANTENIMIENTO', 'PRESTAMO', 'DEVOLUCION', 'ANULACION'];
+      var movs = m.MOVIMIENTOS.filter(function (x) {
+        var it = itemInv(x.ItemID);
+        return (tipoKardex === 'TODOS' || x.Tipo === tipoKardex) && coincide('kar', [it.Codigo, it.Descripcion, equipo(x.EquipoID).CodigoInterno, x.NombreUsuario, x.Motivo, x.Comentario, x.Documento].join(' '));
+      }).sort(function (a, b) { return String(b.FechaHora).localeCompare(String(a.FechaHora)); });
+      h += '<div class="segmento pestanas" role="group" aria-label="Tipo">' + tipos.map(function (t) {
+          return '<button type="button" data-a="mecKardexTipo" data-v="' + t + '" aria-pressed="' + (t === tipoKardex) + '">' + (t === 'TODOS' ? 'Todos' : nomTipo(t)) + '</button>';
+        }).join('') + '</div>' + barraBusq('kar', 'Buscar ítem, equipo, mecánico, motivo o factura…') +
+        '<p class="mini">' + movs.length + ' movimiento(s). Nada se borra: una anulación es otro movimiento que revierte el stock.</p>' +
+        '<div class="lista">' + movs.slice(0, 300).map(function (x) {
+          var it = itemInv(x.ItemID), anul = x.Estado === 'ANULADO';
+          return '<div class="tarjeta" style="display:grid;gap:6px' + (anul ? ';opacity:.6' : '') + '"><div class="entre"><span class="estado ' + (x.Tipo === 'ANULACION' ? 'peligro' : x.Signo > 0 ? 'ok' : 'alerta') + '">' + esc(nomTipo(x.Tipo)) + '</span>' +
+            '<span class="mini">' + fFH(x.FechaHora) + '</span></div><div class="entre"><strong style="' + (anul ? 'text-decoration:line-through' : '') + '">' + esc(it.Codigo || x.ItemID) + ' · ' + esc(it.Descripcion || '') + '</strong>' +
+            '<strong class="num">' + (x.Signo > 0 ? '+' : '−') + n1(x.Cantidad) + ' ' + esc(it.Unidad || '') + '</strong></div>' +
+            '<div class="mini">' + [x.EquipoID ? 'Equipo ' + (equipo(x.EquipoID).CodigoInterno || x.EquipoID) : '', x.Motivo ? 'Motivo: ' + x.Motivo : '', x.Proveedor ? 'Proveedor: ' + x.Proveedor : '', x.Documento ? 'Doc.: ' + x.Documento : '',
+              x.Comentario || '', 'Stock después: ' + n1(x.StockDespues), (x.NombreUsuario || x.Usuario), anul ? 'Anulado por ' + x.AnuladoPor + ' el ' + fFH(x.FechaAnulacion) : '',
+              x.Tipo === 'PRESTAMO' ? (x.Devuelto === true ? 'Devuelto' : 'Sin devolver') : ''].filter(function (s) { return s; }).map(esc).join(' · ') + '</div>' +
+            (esAdminRol() && !anul && x.Tipo !== 'ANULACION' ? '<button type="button" class="btn chico peligro" data-a="mecAnular" data-k="' + x.MovID + '">Anular</button>' : '') + '</div>';
+        }).join('') + '</div>';
+    }
+    marco('Mecánica', h, { tablero: tab === 'tablero' || tab === 'inventario' || tab === 'kardex' });
+    var fu = document.getElementById('fUso');
+    if (fu) {
+      var aviso = function () { var it = itemInv(fu.ItemID.value); document.getElementById('usoAviso').textContent = it.ItemID ? (esHerr(it) ? 'Herramienta: se registra como PRÉSTAMO y luego se devuelve. ' : '') + 'Hay ' + n1(it.StockActual) + ' ' + it.Unidad + '.' : ''; };
+      fu.ItemID.onchange = aviso;
+      fu.onsubmit = function (e) {
+        e.preventDefault();
+        var v = { ItemID: fu.ItemID.value, Cantidad: fu.Cantidad.value, EquipoID: fu.EquipoID.value, Motivo: fu.Motivo.value, Comentario: fu.Comentario.value };
+        var it = itemInv(v.ItemID);
+        if (!it.ItemID) { toast('Elija el ítem.'); return; }
+        if (!(Number(v.Cantidad) > 0)) { toast('Escriba la cantidad.'); return; }
+        if (Number(v.Cantidad) > Number(it.StockActual)) { toast('No alcanza: hay ' + n1(it.StockActual) + ' ' + it.Unidad + '.'); return; }
+        if (!v.EquipoID) { toast('Elija el equipo destino (es obligatorio).'); return; }
+        if (v.Motivo === 'OTRO' && String(v.Comentario).trim().length < 3) { toast('Con el motivo "otro", escriba un comentario.'); return; }
+        mecOp('uso', v);
+      };
+    }
+  }
+
+  /** Ficha de un equipo: plan, próximo PM, checklist por PM, historial y repuestos usados. */
+  function vMecEquipo(id) {
+    var e = equipo(id);
+    if (!e.EquipoID) { location.replace('#/mecanica/mantenimientos'); return; }
+    var m = mec(), mod = modeloDe(e), p = pmDe(e);
+    var seq = mod ? String(mod.SecuenciaPM).split(',') : ['PM1', 'PM2', 'PM3', 'PM4'];
+    var pmsUnicos = seq.filter(function (x, i) { return seq.indexOf(x) === i; }).sort();
+    var hist = (m.MTTO_MEC || []).filter(function (x) { return x.EquipoID === id; }).map(function (x) { return { f: x.Fecha, s: x.Servicio, l: x.Lectura, q: x.Mecanico, o: x.Observaciones }; })
+      .concat((cat().MANTENIMIENTOS_HIST || []).filter(function (x) { return x.EquipoID === id && !(m.MTTO_MEC || []).some(function (y) { return y.EquipoID === id && y.Fecha === x.Fecha && y.Servicio === x.Servicio; }); })
+        .map(function (x) { return { f: x.Fecha, s: x.Servicio, l: x.Lectura, q: x.Fuente === 'EXCEL' ? 'Registro Excel' : '', o: '' }; }))
+      .sort(function (a, b) { return String(b.f).localeCompare(String(a.f)); });
+    var usados = m.MOVIMIENTOS.filter(function (x) { return x.EquipoID === id && x.Estado === 'VIGENTE' && x.Signo < 0; }).sort(function (a, b) { return String(b.FechaHora).localeCompare(String(a.FechaHora)); });
+    var h = '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + ' · ' + esc(e.Familia) + '</h3>' +
+      '<div class="mini">' + esc([e.Marca, e.Modelo, e.Anio].filter(function (x) { return x; }).join(' ')) + ' · ' + esc(e.PlacaSerie || '') + ' · ' + (p.actual !== null ? n1(p.actual) + ' ' + p.um : 'sin lectura') + '</div></div></div>' +
+      '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Próximo mantenimiento</h3>' + chipPM(p) + '</div>' +
+      (p.lectura !== null ? '<p class="sub" style="margin:0">' + esc(p.pm) + ' a las ' + n1(p.lectura) + ' ' + p.um + (mod ? ' · plan: cada ' + n1(mod.Intervalo) + ' ' + p.um + ' (' + esc(mod.SecuenciaPM) + ')' : ' · según el plan importado del Excel') + '</p>'
+        : '<p class="sub" style="margin:0">Este modelo aún no tiene plan.' + (esAdminRol() ? ' Créelo con "Ficha y plan".' : ' Pídale al administrador que lo cree.') + '</p>') +
+      (puedeOperarMec() ? '<button type="button" class="btn primario ancho" data-a="mecHacerPM" data-k="' + id + '" data-v="' + esc(/^PM\d$/.test(p.pm) ? p.pm : pmsUnicos[0]) + '">' + ic('wrench') + 'Hacer mantenimiento' + (/^PM\d$/.test(p.pm) ? ' ' + esc(p.pm) : '') + '</button>' : '') +
+      (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecModelo" data-k="' + id + '">' + ic('edit') + 'Ficha y plan del modelo</button>' : '') + '</div>' +
+      '<div class="tarjeta"><h3>Ficha técnica</h3><p class="sub" style="white-space:pre-line">' + esc((mod && mod.FichaTecnica) || 'Sin ficha técnica.') + '</p></div>' +
+      '<div class="etiqueta-seccion">Checklist por PM</div>' + (mod ? pmsUnicos.map(function (pm) {
+        var lin = m.PLAN_PM_LINEAS.filter(function (l) { return l.ModeloKey === mod.ModeloKey && l.PM === pm; }).sort(function (a, b) { return a.Orden - b.Orden; });
+        return '<details class="tarjeta"><summary class="entre" style="cursor:pointer;list-style:none"><h3>' + esc(pm) + ' <span class="mini">(' + lin.length + ' línea(s))</span></h3>' + ic('right') + '</summary><div class="uno-lista" style="margin-top:8px">' +
+          (lin.length ? lin.map(function (l) {
+            var it = itemInv(l.ItemID);
+            return '<div class="fila-dato"><span>' + (l.Tipo === 'REPUESTO' ? ic('caja') : ic('check')) + ' ' + esc(l.Descripcion) + '</span><span>' + (l.Tipo === 'REPUESTO' ? n1(l.Cantidad) + ' ' + esc(it.Unidad || '') + ' · hay ' + n1(it.StockActual) : '') + '</span></div>';
+          }).join('') : '<p class="mini">Sin líneas.</p>') + '</div>' +
+          (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecLineas" data-k="' + esc(mod.ModeloKey) + '" data-v="' + pm + '">' + ic('edit') + 'Editar checklist ' + esc(pm) + '</button>' : '') + '</details>';
+      }).join('') : '<p class="mini">Primero hay que crear la ficha y el plan del modelo.</p>') +
+      '<div class="etiqueta-seccion">Historial de mantenimientos</div><div class="tarjeta uno-lista">' + (hist.length ? hist.slice(0, 30).map(function (x) {
+        return '<div class="fila-dato"><span>' + fF(x.f) + ' · <strong>' + esc(x.s) + '</strong></span><span>' + n1(x.l) + ' ' + p.um + (x.q ? ' · ' + esc(x.q) : '') + '</span></div>';
+      }).join('') : '<p class="mini">Sin mantenimientos registrados.</p>') + '</div>' +
+      '<div class="etiqueta-seccion">Repuestos usados en este equipo</div><div class="tarjeta uno-lista">' + (usados.length ? usados.slice(0, 30).map(function (x) {
+        var it = itemInv(x.ItemID);
+        return '<div class="fila-dato"><span>' + fFH(x.FechaHora) + ' · ' + esc(nomTipo(x.Tipo)) + '</span><span>' + esc(it.Codigo) + ' ' + n1(x.Cantidad) + ' ' + esc(it.Unidad || '') + '</span></div>';
+      }).join('') : '<p class="mini">Aún no se usaron repuestos en este equipo.</p>') + '</div>';
+    marco(e.CodigoInterno, h, { volver: '#/mecanica/mantenimientos' });
+  }
+
+  /** Checklist para cerrar un mantenimiento: tareas (check) y repuestos con cantidad editable. */
+  function formCerrarMtto(id, pm) {
+    var e = equipo(id), mod = modeloDe(e), p = pmDe(e);
+    var seq = mod ? String(mod.SecuenciaPM).split(',') : ['PM1', 'PM2', 'PM3', 'PM4'];
+    var pms = seq.filter(function (x, i) { return seq.indexOf(x) === i; }).sort();
+    var lin = mod ? mec().PLAN_PM_LINEAS.filter(function (l) { return l.ModeloKey === mod.ModeloKey && l.PM === pm; }).sort(function (a, b) { return a.Orden - b.Orden; }) : [];
+    hoja('Mantenimiento ' + pm + ' · ' + e.CodigoInterno,
+      campo('PM', selHtml('PM', pms.map(function (x) { return [x, x]; }), pm), true) +
+      '<div class="dos">' + campo('Horómetro / km', '<input name="Horometro" type="number" inputmode="decimal" step="0.1" value="' + esc(p.actual !== null ? p.actual : '') + '">', true) +
+      campo('Fecha', '<input name="Fecha" type="date" max="' + hoy() + '" value="' + hoy() + '">', true) + '</div>' +
+      (lin.length ? '<div class="etiqueta-seccion" style="margin:0">Checklist</div>' + lin.map(function (l, i) {
+        var it = itemInv(l.ItemID);
+        return l.Tipo === 'REPUESTO'
+          ? '<div class="opcion" style="gap:10px;flex-wrap:wrap"><input type="checkbox" name="h_' + i + '" checked><span class="crece">' + esc(l.Descripcion) + '<br><span class="mini">Hay ' + n1(it.StockActual) + ' ' + esc(it.Unidad || '') + '</span></span>' +
+            '<input name="c_' + i + '" type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(l.Cantidad) + '" style="width:90px;min-height:44px;padding:8px;border-radius:12px;background:var(--fondo-2);color:var(--texto);border:1px solid var(--borde)" aria-label="Cantidad">' + '</div>'
+          : '<label class="check"><input type="checkbox" name="h_' + i + '" checked><span>' + esc(l.Descripcion) + '</span></label>';
+      }).join('') : '<p class="mini">Este PM no tiene checklist: se registra el mantenimiento sin descontar repuestos.</p>') +
+      campo('Observaciones', '<textarea name="Observaciones"></textarea>'),
+      function (v) {
+        if (!(Number(v.Horometro) >= 0) || v.Horometro === '') return 'Indique el horómetro o km.';
+        var lineas = lin.map(function (l, i) { return { Tipo: l.Tipo, Descripcion: l.Descripcion, ItemID: l.ItemID || '', Cantidad: l.Tipo === 'REPUESTO' ? Number(v['c_' + i]) : '', Hecho: v['h_' + i] === true }; });
+        var falta = lineas.filter(function (l) { return l.Tipo === 'REPUESTO' && l.Hecho && l.Cantidad > Number(itemInv(l.ItemID).StockActual); })[0];
+        if (falta) return 'No alcanza ' + falta.Descripcion + ': hay ' + n1(itemInv(falta.ItemID).StockActual) + '.';
+        mecOp('cerrarMtto', { EquipoID: id, PM: v.PM, Horometro: v.Horometro, Fecha: v.Fecha, Observaciones: v.Observaciones, Lineas: lineas });
+      }, 'Cerrar mantenimiento');
+    var sel = dlg.querySelector('[name="PM"]');
+    if (sel) sel.onchange = function () { formCerrarMtto(id, sel.value); };
+  }
+
+  function formItem(id) {
+    var i = id ? itemInv(id) : { Codigo: '', Descripcion: '', Categoria: (mec().CATEGORIAS || [])[0], Unidad: 'und', StockMinimo: '', ModelosCompatibles: '', Estado: 'ACTIVO' };
+    hoja(id ? 'Editar ítem' : 'Nuevo ítem',
+      '<div class="dos">' + campo('Código', '<input name="Codigo" value="' + esc(i.Codigo) + '" autocomplete="off">', true) + campo('Unidad', '<input name="Unidad" value="' + esc(i.Unidad) + '" placeholder="und, gal, L, kg">', true) + '</div>' +
+      campo('Descripción', '<input name="Descripcion" value="' + esc(i.Descripcion) + '" autocomplete="off">', true) +
+      campo('Categoría', selHtml('Categoria', (mec().CATEGORIAS || []).map(function (c) { return [c, c]; }), i.Categoria), true) +
+      '<div class="dos">' + campo('Stock mínimo', '<input name="StockMinimo" type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(i.StockMinimo) + '">') +
+      campo('Estado', selHtml('Estado', [['ACTIVO', 'Activo'], ['INACTIVO', 'Inactivo']], i.Estado || 'ACTIVO')) + '</div>' +
+      campo('Modelos compatibles', '<input name="ModelosCompatibles" value="' + esc(i.ModelosCompatibles) + '" placeholder="CAT 320, CAT 336…">') +
+      (id ? '<p class="mini">El stock no se edita aquí: cambia solo con ingresos, usos y anulaciones (queda en el kardex). Stock actual: ' + n1(i.StockActual) + ' ' + esc(i.Unidad) + '.</p>' : '<p class="mini">El ítem nace con stock 0: luego registre su ingreso.</p>'),
+      function (v) {
+        if (!String(v.Codigo).trim() || !String(v.Descripcion).trim()) return 'Falta el código o la descripción.';
+        mecOp('guardarItem', Object.assign({ ItemID: id || '' }, v));
+      }, id ? 'Guardar' : 'Crear ítem');
+  }
+  function formIngreso(id) {
+    var i = itemInv(id);
+    hoja('Ingreso · ' + i.Codigo,
+      '<p class="sub">' + esc(i.Descripcion) + ' · hay ' + n1(i.StockActual) + ' ' + esc(i.Unidad) + '</p>' +
+      '<div class="dos">' + campo('Cantidad', '<input name="Cantidad" type="number" inputmode="decimal" step="0.1" min="0">', true) + campo('Fecha', '<input name="Fecha" type="date" max="' + hoy() + '" value="' + hoy() + '">', true) + '</div>' +
+      campo('Proveedor (opcional)', '<input name="Proveedor" autocomplete="off">') + campo('N° guía o factura (opcional)', '<input name="Documento" autocomplete="off">'),
+      function (v) {
+        if (!(Number(v.Cantidad) > 0)) return 'Escriba la cantidad.';
+        mecOp('ingreso', Object.assign({ ItemID: id }, v));
+      }, 'Registrar ingreso');
+  }
+  function formCategorias() {
+    hoja('Categorías del inventario',
+      campo('Una por línea', '<textarea name="c" style="min-height:200px">' + esc((mec().CATEGORIAS || []).join('\n')) + '</textarea>', true) +
+      '<p class="mini">Una categoría con ítems no se puede quitar. Lo que tenga "herramienta" en el nombre se presta y se devuelve.</p>',
+      function (v) { mecOp('categorias', { Categorias: String(v.c).split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return x; }) }); }, 'Guardar');
+  }
+  function formModelo(id) {
+    var e = equipo(id), mod = modeloDe(e) || {};
+    var todos = mod.ModeloKey ? String(mod.ModeloKey).split('|')[3] === '' : !e.Anio;
+    hoja('Ficha y plan · ' + (e.Marca || '') + ' ' + e.Modelo,
+      '<p class="sub">' + esc(e.Familia) + ' · ' + esc(e.Marca || '') + ' ' + esc(e.Modelo) + '</p>' +
+      (e.Anio ? '<label class="check"><input type="checkbox" name="todos"' + (todos ? ' checked' : '') + '><span>Aplicar a todos los años del modelo (si no, solo al año ' + esc(e.Anio) + ')</span></label>' : '') +
+      '<div class="dos">' + campo('PM cada', '<input name="Intervalo" type="number" inputmode="decimal" min="1" value="' + esc(mod.Intervalo || 250) + '">', true) +
+      campo('Medida', selHtml('UM', [['HR', 'Horas (horómetro)'], ['KM', 'Km (odómetro)']], mod.UM || (e.TieneHorometro ? 'HR' : 'KM'))) + '</div>' +
+      campo('Orden de los PM en un ciclo', '<input name="SecuenciaPM" value="' + esc(mod.SecuenciaPM || R.SECUENCIA_PM) + '">', true) +
+      '<p class="mini">Con 250 h: 250 PM1 · 500 PM2 · 750 PM1 · 1000 PM3 · … · 2000 PM4, y vuelve a empezar.</p>' +
+      campo('Ficha técnica', '<textarea name="FichaTecnica" style="min-height:140px" placeholder="Capacidades, aceites, filtros, torques…">' + esc(mod.FichaTecnica || '') + '</textarea>'),
+      function (v) {
+        if (!(Number(v.Intervalo) > 0)) return 'Indique cada cuántas horas o km toca el PM.';
+        mecOp('guardarModelo', { Familia: e.Familia, Marca: e.Marca, Modelo: e.Modelo, Anio: v.todos === true || !e.Anio ? '' : e.Anio,
+          Intervalo: v.Intervalo, UM: v.UM, SecuenciaPM: v.SecuenciaPM, FichaTecnica: v.FichaTecnica });
+      }, 'Guardar');
+  }
+  /** Editor del checklist de un PM: tareas y repuestos (con ítem del inventario y cantidad). */
+  function formLineas(key, pm) {
+    var lin = mec().PLAN_PM_LINEAS.filter(function (l) { return l.ModeloKey === key && l.PM === pm; }).sort(function (a, b) { return a.Orden - b.Orden; });
+    var items = mec().INVENTARIO.filter(function (i) { return i.Estado !== 'INACTIVO' && !esHerr(i); });
+    var fila = function (l) {
+      return '<div class="tarjeta lin-pm" style="display:grid;gap:8px;padding:12px">' +
+        '<div class="dos">' + selHtml('t', [['TAREA', 'Tarea'], ['REPUESTO', 'Repuesto']], l.Tipo || 'TAREA') +
+        '<button type="button" class="btn chico peligro" data-quitar>' + ic('trash') + 'Quitar</button></div>' +
+        '<input name="d" value="' + esc(l.Descripcion || '') + '" placeholder="Tarea (ej. Revisar niveles)">' +
+        '<div class="dos">' + selHtml('i', items.map(function (i) { return [i.ItemID, i.Codigo + ' · ' + i.Descripcion]; }), l.ItemID || '', 'Repuesto del inventario…') +
+        '<input name="c" type="number" inputmode="decimal" step="0.1" min="0" value="' + esc(l.Cantidad || '') + '" placeholder="Cantidad"></div></div>';
+    };
+    hoja('Checklist ' + pm,
+      '<div id="lineasPM" style="display:grid;gap:10px">' + lin.map(fila).join('') + '</div>' +
+      '<button type="button" class="btn chico" id="masLinea">' + ic('plus') + 'Agregar línea</button>',
+      function () {
+        var lineas = [].map.call(dlg.querySelectorAll('.lin-pm'), function (el) {
+          return { Tipo: el.querySelector('[name="t"]').value, Descripcion: el.querySelector('[name="d"]').value, ItemID: el.querySelector('[name="i"]').value, Cantidad: el.querySelector('[name="c"]').value };
+        }).filter(function (l) { return l.Descripcion.trim() || l.ItemID; });
+        var mala = lineas.filter(function (l) { return l.Tipo === 'REPUESTO' && (!l.ItemID || !(Number(l.Cantidad) > 0)); })[0];
+        if (mala) return 'En cada repuesto elija el ítem y la cantidad.';
+        mecOp('guardarLineas', { ModeloKey: key, PM: pm, Lineas: lineas });
+      }, 'Guardar checklist');
+    var cont = document.getElementById('lineasPM');
+    document.getElementById('masLinea').onclick = function () { cont.insertAdjacentHTML('beforeend', fila({})); };
+    cont.onclick = function (e) { var b = e.target.closest('[data-quitar]'); if (b) b.closest('.lin-pm').remove(); };
+  }
+
+  /** Combustible: se está integrando la app AXION Combustible (hojas A4 con IA, desvíos y análisis). */
+  function vCombustible() {
+    marco('Combustible', '<div class="vacio">' + ic('fuel') + '<h2>Combustible se está uniendo a AXION</h2>' +
+      '<p>Muy pronto aquí podrá fotografiar la hoja de despacho, revisar lo que leyó la IA y ver los consumos de cada equipo, con el mismo ingreso de AXION.</p>' +
+      '<p class="mini">Mientras tanto, siga usando la app AXION Combustible como hasta ahora: nada de lo que registre se pierde.</p></div>');
+  }
+
+  /** Alta o edición de un usuario de Gerencia, Mecánico o Abastecedor. */
+  function formOtroUsuario(id) {
+    var u = id ? (adm().otros || []).filter(function (x) { return x.UsuarioID === id; })[0] : null;
+    u = u || { Rol: 'MECANICO', Nombre: '', Email: '', Telefono: '', DNI: '' };
+    hoja(id ? 'Editar usuario' : 'Agregar usuario',
+      campo('Rol', selHtml('Rol', [['MECANICO', 'Mecánico'], ['ABASTECEDOR', 'Abastecedor'], ['GERENCIA', 'Gerencia (solo ve)']], u.Rol), true) +
+      campo('Nombre completo', '<input name="Nombre" value="' + esc(u.Nombre) + '" autocomplete="off">', true) +
+      campo('Correo (obligatorio para Gerencia)', '<input name="Email" type="email" value="' + esc(u.Email) + '" autocomplete="off">') +
+      campo('Celular (mecánico y abastecedor)', '<input name="Telefono" inputmode="tel" value="' + esc(u.Telefono) + '" autocomplete="off">') +
+      campo('DNI (opcional)', '<input name="DNI" inputmode="numeric" value="' + esc(u.DNI) + '" autocomplete="off">') +
+      (id ? '' : campo('Empresa', selHtml('EmpresaID', adm().empresas.map(function (e) { return [e.EmpresaID, e.Nombre]; }), adm().empresas[0] && adm().empresas[0].EmpresaID))),
+      function (v) {
+        if (!String(v.Nombre || '').trim()) return 'Falta el nombre.';
+        if (v.Rol === 'GERENCIA' && !/@/.test(v.Email || '')) return 'Gerencia entra con su correo: escríbalo.';
+        if (v.Rol !== 'GERENCIA' && !/^9\d{8}$/.test(String(v.Telefono || '').replace(/\D/g, '').slice(-9))) return 'Escriba el celular (9 dígitos, empieza con 9).';
+        adminOp('guardarUsuarioRol', Object.assign({ UsuarioID: id || '' }, v));
+      }, id ? 'Guardar' : 'Agregar');
   }
 
   function formOperador() {
@@ -3337,6 +3754,31 @@
     },
     flujo: function (b) { flujo(b.dataset.id, b.dataset.acc); },
     aprobarTodos: function () { aprobarTodos(); },
+    // ---- módulo Mecánica
+    mecItem: function (b) { formItem(b.dataset.k || ''); },
+    mecIngreso: function (b) { formIngreso(b.dataset.k); },
+    mecCategorias: function () { formCategorias(); },
+    mecCat: function (b) { catInv = b.dataset.v; render(); },
+    mecKardexTipo: function (b) { tipoKardex = b.dataset.v; render(); },
+    mecDevolver: function (b) {
+      var x = mec().MOVIMIENTOS.filter(function (y) { return y.MovID === b.dataset.k; })[0] || {}, it = itemInv(x.ItemID);
+      confirmar('Devolver herramienta', '¿Registrar la devolución de ' + (it.Codigo || '') + ' · ' + (it.Descripcion || '') + '?', 'Devolver').then(function (si) { if (si) mecOp('devolver', { MovID: b.dataset.k }); });
+    },
+    mecAnular: function (b) {
+      var x = mec().MOVIMIENTOS.filter(function (y) { return y.MovID === b.dataset.k; })[0] || {}, it = itemInv(x.ItemID);
+      hoja('Anular movimiento', '<p class="sub">' + esc(nomTipo(x.Tipo)) + ' de ' + n1(x.Cantidad) + ' ' + esc(it.Unidad || '') + ' · ' + esc(it.Codigo || '') + ' · ' + fFH(x.FechaHora) + '</p>' +
+        '<p class="mini">Se revierte el stock y queda registrado (no se borra).</p>' + campo('Motivo de la anulación', '<textarea name="m"></textarea>', true),
+        function (v) { if (String(v.m || '').trim().length < 5) return 'Escriba el motivo (mínimo 5 letras).'; mecOp('anular', { MovID: b.dataset.k, Motivo: v.m.trim() }); }, 'Anular');
+    },
+    mecHacerPM: function (b) { formCerrarMtto(b.dataset.k, b.dataset.v); },
+    mecModelo: function (b) { formModelo(b.dataset.k); },
+    mecLineas: function (b) { formLineas(b.dataset.k, b.dataset.v); },
+    // ---- Administrar › Gerencia, mecánicos y abastecedores
+    admOtro: function (b) { formOtroUsuario(b.dataset.k || ''); },
+    admOtroBaja: function (b) {
+      confirmar('Dar de baja', b.dataset.n + ' ya no podrá entrar a la app. Su historial se conserva.', 'Dar de baja', true).then(function (si) { if (si) adminOp('bajaUsuarioRol', { UsuarioID: b.dataset.k }); });
+    },
+    admOtroAlta: function (b) { adminOp('bajaUsuarioRol', { UsuarioID: b.dataset.k, Activar: true }); },
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
@@ -3404,6 +3846,7 @@
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-a]');
     if (!b || b.disabled) return;
+    if (rol() === 'GERENCIA' && LECTURA_GERENCIA.indexOf(b.dataset.a) < 0) { e.preventDefault(); toast('Gerencia solo puede ver.'); return; }
     if (b.dataset.a !== 'avisar') e.preventDefault();  // el aviso es un enlace real a WhatsApp: se deja abrir
     ACC[b.dataset.a](b, e);
   });
@@ -3485,10 +3928,19 @@
       caja.appendChild(b);
     });
   }
+  // GERENCIA: solo lectura. Se quitan de la pantalla todos los botones que crean, editan, eliminan o aprueban
+  // (el servidor además los rechaza). Solo quedan los de navegar, filtrar, ver fotos y descargar el Excel.
+  var LECTURA_GERENCIA = ['volver', 'ir', 'sync', 'verFoto', 'mecCat', 'mecKardexTipo', 'filtro', 'dia', 'periodoMantto', 'rangoAplicar',
+    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar'];
+  function soloLectura() {
+    if (rol() !== 'GERENCIA') return;
+    document.querySelectorAll('#app [data-a]').forEach(function (el) { if (LECTURA_GERENCIA.indexOf(el.dataset.a) < 0) el.remove(); });
+  }
   function render() {
     if (dlg.open) return;
     capturarEscrito();
     renderRuta();
+    soloLectura();
     ojitos();
     restaurarEscrito();
   }
@@ -3502,6 +3954,21 @@
     (h.split('?')[1] || '').split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) q[p[0]] = decodeURIComponent(p[1] || ''); });
     var r = h.split('?')[0].split('/');
     var esOp = rol() === 'OPERADOR';
+    // mecánico y abastecedor solo ven su módulo (y su cuenta)
+    if (rol() === 'MECANICO') {
+      if (r[1] === 'mecanica') return vMecanica(r[2]);
+      if (r[1] === 'mec-equipo' && r[2]) return vMecEquipo(r[2]);
+      if (r[1] === 'cuenta') return vCuenta();
+      location.replace('#/mecanica'); return;
+    }
+    if (rol() === 'ABASTECEDOR') {
+      if (r[1] === 'combustible') return vCombustible();
+      if (r[1] === 'cuenta') return vCuenta();
+      location.replace('#/combustible'); return;
+    }
+    if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mecanica') return vMecanica(r[2]);
+    if ((rol() === 'ADMIN' || rol() === 'GERENCIA') && r[1] === 'mec-equipo' && r[2]) return vMecEquipo(r[2]);
+    if (rol() === 'GERENCIA' && r[1] === 'combustible') return vCombustible();
     if (r[1] === 'parte' && r[2] === 'nuevo') { if (esOp) nuevoParte(q); else location.replace('#/revisar'); return; }
     if (r[1] === 'parte' && r[3] === 'paso') return vAsistente(r[2], Number(r[4]));
     if (r[1] === 'parte' && r[3] === 'ia') return vIA(r[2]);

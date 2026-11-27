@@ -351,7 +351,32 @@ var Reglas = (function () {
     APROBAR: 'APROBADO', ANULAR: 'ANULADO', REABRIR: 'OBSERVADO', EXCEPCION: null };
   var REQUIERE_COMENTARIO = ['OBSERVAR', 'ANULAR', 'REABRIR', 'EXCEPCION'];
 
-  return { num: num, vacio: vacio, sumarDias: sumarDias, enLima: enLima, isoLima: isoLima,
+  // ------------------------------------------------------------ mecánica: qué PM toca
+  var SECUENCIA_PM = 'PM1,PM2,PM1,PM3,PM1,PM2,PM1,PM4';
+  /** Clave de la ficha/plan de un modelo: Familia|Marca|Modelo|Año (año vacío = todos los años). */
+  function modeloKey(familia, marca, modelo, anio) {
+    return [familia, marca, modelo, anio === null || anio === undefined ? '' : anio].map(function (x) { return String(x === undefined || x === null ? '' : x).trim().toUpperCase(); }).join('|');
+  }
+  /**
+   * Próximo PM con intervalo fijo y una secuencia que se repite. Ej. 250 h y PM1,PM2,PM1,PM3,PM1,PM2,PM1,PM4:
+   * 250 PM1 · 500 PM2 · 750 PM1 · 1000 PM3 · … · 2000 PM4 · 2250 PM1…
+   * ultimaPM = lectura del último PM hecho (si no hay, se toma el múltiplo anterior a la lectura actual).
+   * Devuelve {pm, lectura, faltan, estado: VENCIDO | PROXIMO | OK | SIN_LECTURA}.
+   */
+  function proximoPM(intervalo, secuencia, ultimaPM, actual) {
+    var I = num(intervalo);
+    if (I === null || I <= 0) return null;
+    var seq = String(secuencia || SECUENCIA_PM).toUpperCase().split(/[,;\s]+/).filter(function (x) { return x; });
+    if (!seq.length) seq = SECUENCIA_PM.split(',');
+    var u = num(ultimaPM), a = num(actual);
+    var k = u !== null ? Math.round(u / I) : (a !== null ? Math.floor(a / I) : 0);
+    var sig = k + 1, lectura = Math.round(sig * I * 10) / 10;
+    var faltan = a === null ? null : Math.round((lectura - a) * 10) / 10;
+    var estado = faltan === null ? 'SIN_LECTURA' : faltan <= 0 ? 'VENCIDO' : faltan <= Math.max(25, I * 0.1) ? 'PROXIMO' : 'OK';
+    return { pm: seq[(sig - 1) % seq.length], lectura: lectura, faltan: faltan, estado: estado };
+  }
+
+  return { num: num, modeloKey: modeloKey, proximoPM: proximoPM, SECUENCIA_PM: SECUENCIA_PM, vacio: vacio, sumarDias: sumarDias, enLima: enLima, isoLima: isoLima,
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
