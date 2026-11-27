@@ -100,6 +100,13 @@
     var m = document.querySelector('meta[name="theme-color"]');
     if (m) m.setAttribute('content', t === 'claro' ? '#F3F1EC' : '#0A0A0B');
   }
+  /** Interruptor fijo en la barra de arriba: encendido = modo claro. */
+  function temaEfectivo() { return document.documentElement.getAttribute('data-tema') === 'claro' ? 'claro' : 'oscuro'; }
+  function interruptorTema() {
+    var claro = temaEfectivo() === 'claro';
+    return '<button type="button" class="tema-switch" role="switch" aria-checked="' + claro + '" data-a="temaSwitch" aria-label="Modo claro" title="Cambiar a modo ' + (claro ? 'oscuro' : 'claro') + '">' +
+      '<span class="ts-txt">' + (claro ? 'Claro' : 'Oscuro') + '</span><span class="ts-pista"><span class="ts-bola">' + (claro ? '☀' : '☾') + '</span></span></button>';
+  }
   aplicarTema();
   if (mqClaro) { var alCambiarSO = function () { if (temaElegido() === 'auto') aplicarTema(); }; if (mqClaro.addEventListener) mqClaro.addEventListener('change', alCambiarSO); else if (mqClaro.addListener) mqClaro.addListener(alCambiarSO); }
 
@@ -142,8 +149,8 @@
     }
     app.innerHTML = '<div class="app"><header class="cabecera">' +
       (op.volver ? '<button class="volver" data-a="volver" data-h="' + esc(op.volver) + '" aria-label="Volver">' + ic('left') + '</button>' : '<span class="marca">AXION</span>') +
-      '<span class="titulo">' + esc(titulo) + '</span>' +
-      '<button class="chip-sync ' + (!online ? 'off' : (pend ? 'pend' : '')) + '" data-a="sync" aria-label="Estado de sincronización: ' + sync + '">' +
+      '<span class="titulo">' + esc(titulo) + '</span>' + interruptorTema() +
+      '<button class="chip-sync' + (!online ? 'off' : (pend ? 'pend' : '')) + '" data-a="sync" aria-label="Estado de sincronización: ' + sync + '">' +
       ic(online ? (pend ? 'refresh' : 'cloud') : 'cloudoff') + '<span>' + sync + '</span></button></header>' +
       '<main class="contenido' + (op.tablero ? ' tablero' : '') + '" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
     document.body.classList.toggle('con-nav', !op.sinNav);
@@ -4151,6 +4158,7 @@
     admBajaEq: function (b) { formBaja('EQUIPO', b.dataset.k, equipo(b.dataset.k).CodigoInterno); },
     admSup: function (b) { formSupervisor(b.dataset.k || ''); },
     admBajaSup: function (b) { formBaja('SUPERVISOR', b.dataset.k, b.dataset.n); },
+    temaSwitch: function () { try { localStorage.setItem('axion_tema', temaEfectivo() === 'claro' ? 'oscuro' : 'claro'); } catch (x) { /* nada */ } aplicarTema(); render(); },
     tema: function (b) { try { localStorage.setItem('axion_tema', b.dataset.v); } catch (x) { /* nada */ } aplicarTema(); render(); },
     fichaVer: function (b) { verFicha(b.dataset.k); },
     fichaSubir: function (b) { subirFicha(b.dataset.k); },
@@ -4279,7 +4287,7 @@
   // GERENCIA: solo lectura. Se quitan de la pantalla todos los botones que crean, editan, eliminan o aprueban
   // (el servidor además los rechaza). Solo quedan los de navegar, filtrar, ver fotos y descargar el Excel.
   var LECTURA_GERENCIA = ['volver', 'ir', 'sync', 'verFoto', 'mecCat', 'mecKardexTipo', 'filtro', 'dia', 'periodoMantto', 'rangoAplicar',
-    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar', 'fichaVer', 'tema'];
+    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar', 'fichaVer', 'tema', 'temaSwitch'];
   function soloLectura() {
     if (rol() !== 'GERENCIA') return;
     document.querySelectorAll('#app [data-a]').forEach(function (el) { if (LECTURA_GERENCIA.indexOf(el.dataset.a) < 0) el.remove(); });
@@ -4389,7 +4397,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v66';
+  var VERSION_APP = 'axion-v67';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {

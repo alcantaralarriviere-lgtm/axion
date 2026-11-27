@@ -564,3 +564,14 @@ html[data-tema="claro"] .ingreso { --texto: #F4F1EA; --texto-2: #B8B3A8; --texto
 html[data-tema="claro"] .ingreso .btn:not(.primario) { background: linear-gradient(180deg, #2A2B30, #1C1C20); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 3px 0 #050506; }
 html[data-tema="claro"] .ingreso .campo input { background: #111114; border-color: rgba(255, 255, 255, .08); color: #F4F1EA; }
 html[data-tema="claro"] .logo-marca { box-shadow: inset 0 0 0 1px rgba(24, 24, 30, .10) !important; }
+
+/* ---------- interruptor de modo claro/oscuro (barra de arriba, siempre visible) */
+.tema-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 4px 0 10px; border: 0; background: none; color: var(--texto-2);
+  font-size: 13px; font-weight: 600; cursor: pointer; flex: none; }
+.tema-switch .ts-pista { position: relative; width: 46px; height: 26px; border-radius: 999px; background: var(--sup-2); border: 1px solid var(--borde-2);
+  box-shadow: var(--hundido); transition: background .2s ease; }
+.tema-switch .ts-bola { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; line-height: 1; background: #E9E6E0; color: #3A3B40; box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: left .2s ease, background .2s ease; }
+.tema-switch[aria-checked="true"] .ts-pista { background: var(--acento); border-color: var(--acento-borde); }
+.tema-switch[aria-checked="true"] .ts-bola { left: 22px; background: #FFFFFF; color: #B87600; }
+@media (max-width: 420px) { .tema-switch .ts-txt { display: none; } .cabecera .chip-sync span { display: none; } .cabecera .chip-sync { padding: 0 10px; } }
