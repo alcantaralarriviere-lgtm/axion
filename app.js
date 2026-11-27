@@ -4222,7 +4222,27 @@
       location.reload();
     });
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
-      document.addEventListener('visibilitychange', function () { if (!document.hidden) reg.update().catch(function () {}); });
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) { reg.update().catch(function () {}); revisarVersion(); } });
+      revisarVersion();
+    }).catch(function () {});
+  }
+  /**
+   * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
+   * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
+   */
+  var VERSION_APP = 'axion-v58';
+  function revisarVersion() {
+    if (!navigator.onLine || !window.fetch) return;
+    fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
+      var m = String(t).match(/VERSION\s*=\s*'([^']+)'/);
+      if (!m || m[1] === VERSION_APP) return;
+      var marca = 'axion_forzado_' + m[1];
+      try { if (sessionStorage.getItem(marca)) return; sessionStorage.setItem(marca, '1'); } catch (x) { return; }
+      respaldarEscrito();
+      var borrar = window.caches ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : Promise.resolve();
+      borrar.then(function () { return navigator.serviceWorker.getRegistrations(); })
+        .then(function (rs) { return Promise.all(rs.map(function (r) { return r.update().catch(function () {}); })); })
+        .catch(function () {}).then(function () { location.reload(); });
     }).catch(function () {});
   }
 })();
