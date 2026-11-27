@@ -165,6 +165,12 @@
     }).join('') + '</nav>';
   }
 
+  /** Interruptor de modo claro/oscuro (el mismo de AXION: se guarda en axion_tema). */
+  function interruptorTema() {
+    var claro = document.documentElement.getAttribute('data-tema') === 'claro';
+    return '<button type="button" id="temaSw" class="tema-switch" role="switch" aria-checked="' + claro + '" aria-label="Modo claro" title="Cambiar a modo ' + (claro ? 'oscuro' : 'claro') + '">' +
+      '<span class="ts-txt">' + (claro ? 'Claro' : 'Oscuro') + '</span><span class="ts-pista"><span class="ts-bola">' + (claro ? '☀' : '☾') + '</span></span></button>';
+  }
   function marco(html) {
     var ini = S.perfil ? S.perfil.Nombre.split(' ').map(function (p) { return p.charAt(0); }).slice(0, 2).join('') : '?';
     app.innerHTML = (S.enLinea ? '' : '<div class="sin-red">Sin señal: se muestran los últimos datos guardados</div>') +
@@ -172,10 +178,17 @@
       (rol() === 'ABASTECEDOR' ? '<div class="marca">AXION<small>COMBUSTIBLE</small></div>'
         : '<a class="marca" href="./#/" title="Volver a AXION (partes, tableros, mecánica)" style="text-decoration:none;color:inherit">AXION<small>‹ COMBUSTIBLE</small></a>') +
       '<div class="buscador" role="search">' + IC.buscar + '<input id="buscar" type="search" autocomplete="off" placeholder="Buscar equipo: código, placa o nombre" aria-label="Buscar equipo"><div class="sugerencias" id="sugs" hidden></div></div>' +
+      interruptorTema() +
       '<button class="perfil-btn" id="perfil" aria-label="Mi cuenta">' + esc(ini) + '</button></div></header>' +
       '<main class="contenido" id="contenido">' + html + '</main>' + nav() + '</div>';
     activarBuscador();
     $('#perfil').onclick = verPerfil;
+    $('#temaSw').onclick = function () {
+      var claro = document.documentElement.getAttribute('data-tema') === 'claro';
+      try { localStorage.setItem('axion_tema', claro ? 'oscuro' : 'claro'); } catch (x) { /* nada */ }
+      document.documentElement.setAttribute('data-tema', claro ? 'oscuro' : 'claro');
+      render();
+    };
     $$('.barra-nav [data-ir]').forEach(function (b) { b.onclick = function () { ir(b.getAttribute('data-ir')); }; });
   }
 
