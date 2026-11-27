@@ -231,8 +231,8 @@
       '<div class="cab-ingreso"><div class="marca-ingreso"><i aria-hidden="true"></i><div class="logo">AXION</div></div><p class="lema">Partes diarios y control de maquinaria</p></div>' +
       '<form class="tarjeta acceso-3d" id="fIngreso" style="display:grid;gap:14px" novalidate>' +
       '<h2>Ingresar</h2>' +
-      '<label class="campo"><span>Número de celular</span><input name="email" type="text" autocomplete="username" inputmode="tel" required placeholder="9XX XXX XXX" value="' + esc(ultimoUsuario()) + '">' +
-      '<span class="ayuda">El administrador ingresa con su correo.</span></label>' +
+      '<label class="campo"><span>Celular o DNI</span><input name="email" type="text" autocomplete="username" inputmode="tel" required placeholder="Celular (9 dígitos) o DNI (8)" value="' + esc(ultimoUsuario()) + '">' +
+      '<span class="ayuda">Operadores con su celular · mecánicos con su DNI · administrador y gerencia con su correo.</span></label>' +
       '<label class="campo"><span>Contraseña</span><input name="codigo" type="password" autocomplete="current-password" required>' +
       '<span class="ayuda">La primera vez use la contraseña que le dio el administrador; luego creará la suya.</span></label>' +
       (msg ? '<div class="msg-error" role="alert">' + ic('alert') + '<span>' + esc(msg) + '</span></div>' : '') +
@@ -3078,13 +3078,15 @@
       campo('Rol', selHtml('Rol', [['MECANICO', 'Mecánico'], ['ABASTECEDOR', 'Abastecedor'], ['GERENCIA', 'Gerencia (solo ve)']], u.Rol), true) +
       campo('Nombre completo', '<input name="Nombre" value="' + esc(u.Nombre) + '" autocomplete="off">', true) +
       campo('Correo (obligatorio para Gerencia)', '<input name="Email" type="email" value="' + esc(u.Email) + '" autocomplete="off">') +
-      campo('Celular (mecánico y abastecedor)', '<input name="Telefono" inputmode="tel" value="' + esc(u.Telefono) + '" autocomplete="off">') +
-      campo('DNI (opcional)', '<input name="DNI" inputmode="numeric" value="' + esc(u.DNI) + '" autocomplete="off">') +
+      campo('DNI (con esto entra el mecánico)', '<input name="DNI" inputmode="numeric" maxlength="8" value="' + esc(u.DNI) + '" autocomplete="off">') +
+      campo('Celular (con esto entra el abastecedor)', '<input name="Telefono" inputmode="tel" value="' + esc(u.Telefono) + '" autocomplete="off">') +
+      '<p class="mini">Mecánico: entra con su DNI y la contraseña <strong>ICONSER</strong>. Abastecedor: con su celular y la contraseña general. Gerencia: con su correo y <strong>ICONSER</strong>.</p>' +
       (id ? '' : campo('Empresa', selHtml('EmpresaID', adm().empresas.map(function (e) { return [e.EmpresaID, e.Nombre]; }), adm().empresas[0] && adm().empresas[0].EmpresaID))),
       function (v) {
         if (!String(v.Nombre || '').trim()) return 'Falta el nombre.';
         if (v.Rol === 'GERENCIA' && !/@/.test(v.Email || '')) return 'Gerencia entra con su correo: escríbalo.';
-        if (v.Rol !== 'GERENCIA' && !/^9\d{8}$/.test(String(v.Telefono || '').replace(/\D/g, '').slice(-9))) return 'Escriba el celular (9 dígitos, empieza con 9).';
+        if (v.Rol === 'MECANICO' && !/^\d{8}$/.test(String(v.DNI || '').replace(/\D/g, ''))) return 'El mecánico entra con su DNI: escriba los 8 dígitos.';
+        if (v.Rol === 'ABASTECEDOR' && !/^9\d{8}$/.test(String(v.Telefono || '').replace(/\D/g, '').slice(-9))) return 'Escriba el celular (9 dígitos, empieza con 9).';
         adminOp('guardarUsuarioRol', Object.assign({ UsuarioID: id || '' }, v));
       }, id ? 'Guardar' : 'Agregar');
   }
@@ -3189,7 +3191,8 @@
       }).join('') + '</div>' +
       '<label class="check"><input type="checkbox" name="PuedeAprobar"' + (s.PuedeAprobar ? ' checked' : '') + '> Puede aprobar partes</label>' +
       (id ? '<div class="acciones dos-col"><button type="button" class="btn chico" data-a="admClave" data-k="' + s.UsuarioID + '" data-n="' + esc(s.Nombre) + '">' + ic('refresh') + 'Restablecer clave</button>' +
-        (s.Estado === 'ACTIVO' ? '<button type="button" class="btn chico peligro" data-a="admBajaSup" data-k="' + id + '" data-n="' + esc(s.Nombre) + '">' + ic('trash') + 'Dar de baja</button>' : '') + '</div>'
+        (s.Estado === 'ACTIVO' ? '<button type="button" class="btn chico peligro" data-a="admBajaSup" data-k="' + id + '" data-n="' + esc(s.Nombre) + '">' + ic('trash') + 'Dar de baja</button>' : '') + '</div>' +
+        (s.Estado === 'ACTIVO' ? '<button type="button" class="btn chico ancho" data-a="admSupGer" data-k="' + id + '" data-n="' + esc(s.Nombre) + '">' + ic('activity') + 'Pasar a Gerencia (ve todo, solo lectura)</button>' : '')
         : '<p class="mini">Entra con ese correo y la contraseña <strong>ICONSER</strong>.</p>'),
       function (v) {
         var obras = Object.keys(v).filter(function (k) { return k.indexOf('obra_') === 0 && v[k]; }).map(function (k) { return k.substring(5); });
@@ -3807,7 +3810,7 @@
       adminOp('altaOperador', { Nombre: o.Nombre, DNI: o.DNI, Telefono: o.Telefono, EmpresaID: o.EmpresaID, Maneja: o.Especialidad, ObraID: o.ObraID });
     },
     admClave: function (b) {
-      confirmar('Restablecer contraseña', b.dataset.n + ' volverá a entrar con la contraseña general (operador) o ICONSER (supervisor). Se cierran sus sesiones abiertas.', 'Restablecer')
+      confirmar('Restablecer contraseña', b.dataset.n + ' volverá a entrar con la contraseña general (operador y abastecedor) o ICONSER (supervisor, gerencia y mecánico). Se cierran sus sesiones abiertas.', 'Restablecer')
         .then(function (si) { if (si) adminOp('clave', { UsuarioID: b.dataset.k }); });
     },
     admTrasOp: function (b) { formTraslado('OPERADOR', b.dataset.k); },
@@ -3818,6 +3821,10 @@
     admBajaEq: function (b) { formBaja('EQUIPO', b.dataset.k, equipo(b.dataset.k).CodigoInterno); },
     admSup: function (b) { formSupervisor(b.dataset.k || ''); },
     admBajaSup: function (b) { formBaja('SUPERVISOR', b.dataset.k, b.dataset.n); },
+    admSupGer: function (b) {
+      confirmar('Pasar a Gerencia', b.dataset.n + ' dejará de ser supervisor: verá todos los partes, tableros, mecánica y combustible, pero no podrá aprobar ni cambiar nada. Entra con su mismo correo y contraseña.', 'Pasar a Gerencia')
+        .then(function (si) { if (si) adminOp('supervisorAGerencia', { SupervisorID: b.dataset.k }); });
+    },
     admObra: function (b) { formObra(b.dataset.k || ''); },
     admAut: function (b) {
       var on = !!b.dataset.on;
