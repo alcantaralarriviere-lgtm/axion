@@ -82,8 +82,9 @@ var Nucleo = (function () {
   // en vez de la respuesta): cada pedido tiene un tiempo máximo y se reintenta solo.
   // tiempos medidos: guardar un parte tarda 5–15 s en el servidor y subir una foto (sin IA) 10–25 s; si pasa más,
   // casi siempre Google perdió la respuesta y conviene preguntar/reintentar ya, no esperar minutos
-  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 30000, subirFoto: 45000, leerFoto: 45000, estadoIA: 15000, estadoFoto: 15000 };
-  var REINTENTOS = { leerFoto: 0, subirFoto: 0, login: 3, estadoIA: 1, estadoFoto: 1 };
+  // fichaEquipo: PDF de hasta 10 MB (subir o abrir) → más tiempo; un reintento basta (subir otra vez reemplaza el anterior)
+  var ESPERA_MAX = { login: 30000, datos: 50000, sincronizar: 30000, subirFoto: 45000, leerFoto: 45000, estadoIA: 15000, estadoFoto: 15000, fichaEquipo: 150000 };
+  var REINTENTOS = { leerFoto: 0, subirFoto: 0, login: 3, estadoIA: 1, estadoFoto: 1, fichaEquipo: 1 };
   function api(accion, datos) {
     var url = (window.AXION_CONFIG && AXION_CONFIG.API_URL) || '/api';
     var cuerpo = JSON.stringify({ accion: accion, datos: datos, token: S.token });

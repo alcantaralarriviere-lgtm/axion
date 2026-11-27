@@ -2035,12 +2035,34 @@
         mtbf: nFallas ? (hp - hi) / nFallas : null, mttr: nFallas ? hi / nFallas : null, hpDia: hpDia, hiDia: hiDia, porSistema: porSistema };
     });
   }
+  /**
+   * Última lectura real del equipo (la calcula el servidor con partes, abastecimientos, mantenimientos, hojas de
+   * combustible y el Excel KPI): { v, f (fecha), fuente }. Si el servidor aún no la mandó, la guardada en EQUIPOS.
+   */
+  function lectEq(e, km) {
+    var v = R.num(km ? e.LectKm : e.LectH);
+    if (v !== null) return { v: v, f: km ? e.LectKmFecha : e.LectHFecha, fuente: km ? e.LectKmFuente : e.LectHFuente };
+    v = R.num(km ? e.UltimoOdometro : e.UltimoHorometro);
+    return { v: v, f: '', fuente: '' };
+  }
+  /** "105,000 km · 20/11/2026" (nunca "sin lectura"; sin ningún dato: "—"). */
+  function txtLect(e, km) {
+    var l = lectEq(e, km);
+    if (l.v === null) return '—';
+    return n1(l.v) + (km ? ' km' : ' h') + (l.f ? ' · ' + fF(l.f) : '');
+  }
+  /** Las dos lecturas que tenga el equipo (horas y km), con su fecha. */
+  function txtLecturas(e) {
+    var h = lectEq(e, false), k = lectEq(e, true);
+    var t = [h.v !== null ? txtLect(e, false) : '', k.v !== null ? txtLect(e, true) : ''].filter(Boolean);
+    return t.length ? t.join(' · ') : '—';
+  }
   /** Estado del plan de mantenimiento con la última lectura recibida del equipo. */
   function estadoMantto(e) {
     var m = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
     if (!m.EquipoID) return { m: null, estado: 'SIN PLAN' };
     var km = String(m.UM || '').toUpperCase() === 'KM';
-    var actual = R.num(km ? e.UltimoOdometro : e.UltimoHorometro);
+    var actual = lectEq(e, km).v;
     var prox = R.num(m.LecturaProxima);
     if (actual === null || prox === null) return { m: m, actual: actual, prox: prox, estado: 'SIN LECTURA' };
     var intervalo = R.num(m.Intervalo) || (km ? 5000 : 250);
@@ -2271,7 +2293,7 @@
       '<div class="tarjeta" style="display:grid;gap:10px"><h3>Mantenimientos preventivos</h3><div style="display:flex;gap:16px;align-items:center">' +
       '<div style="width:110px;height:110px;border-radius:50%;background:' + dona + ';display:grid;place-items:center;flex:none"><div style="width:70px;height:70px;border-radius:50%;background:var(--sup-1);display:grid;place-items:center" class="num"><strong>' + eqs.length + '</strong></div></div>' +
       '<div style="display:grid;gap:6px" class="mini"><div><span style="color:var(--peligro)">●</span> Vencidos: <strong>' + venc + '</strong></div><div><span style="color:var(--aviso)">●</span> Por vencer: <strong>' + porV + '</strong></div>' +
-      '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin lectura: <strong>' + sinM + '</strong></div></div></div>' +
+      '<div><span style="color:var(--ok)">●</span> Al día: <strong>' + okM + '</strong></div><div><span style="color:var(--texto-3)">●</span> Sin plan o sin dato: <strong>' + sinM + '</strong></div></div></div>' +
       '<a class="btn chico" href="#/plan">' + ic('right') + 'Ver plan de mantenimiento</a></div>' +
       '<p class="mini">Línea amarilla y blanca con horómetro. Programado: 10 h por turno de lunes a sábado y 5 h el domingo. Los días sin parte en la app toman los datos del Excel KPI (histórico desde setiembre). ' +
       'DM = (programadas − paradas) / programadas. Utilización = horas de horómetro / programadas. MTTR = horas paradas / fallas. MTBF = horas disponibles / fallas. Las flechas comparan con el mismo número de días justo antes.</p>';
@@ -2327,9 +2349,10 @@
     var fallas = N.filas('FALLAS', function (f) { return f.EquipoID === id; }).sort(function (a, b) { return String(b.FechaHoraInicio).localeCompare(String(a.FechaHoraInicio)); }).slice(0, 8);
     var partes = N.filas('PARTES_DIARIOS', function (p) { return p.EquipoID === id && p.Estado !== 'ANULADO'; })
       .sort(function (a, b) { return (b.FechaTrabajo + b.Turno).localeCompare(a.FechaTrabajo + a.Turno); }).slice(0, 6);
-    var chipPM = { VENCIDO: ['peligro', 'Vencido'], 'POR VENCER': ['alerta', 'Por vencer'], OK: ['ok', 'Al día'] }[st.estado] || ['', st.estado === 'SIN PLAN' ? 'Sin plan' : 'Sin lectura'];
+    var chipPM = { VENCIDO: ['peligro', 'Vencido'], 'POR VENCER': ['alerta', 'Por vencer'], OK: ['ok', 'Al día'] }[st.estado] || ['', st.estado === 'SIN PLAN' ? 'Sin plan' : (st.prox !== null && st.prox !== undefined ? 'Próximo a ' + n1(st.prox) : 'Plan cargado')];
     var h = '<div class="tarjeta fila"><div class="icono-caja acento">' + ic(km ? 'truck' : 'gauge') + '</div><div class="crece"><h2>' + esc(e.CodigoInterno) + '</h2>' +
-      '<div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + ' · ' + esc(lineaDe(e).toLowerCase()) + '</div></div></div>' +
+      '<div class="mini">' + esc(e.Familia) + ' · ' + esc(e.Marca + ' ' + e.Modelo) + ' · ' + esc(lineaDe(e).toLowerCase()) + '</div>' +
+      '<div class="mini">Última lectura: <strong>' + esc(txtLecturas(e)) + '</strong></div></div></div>' +
       filtroPeriodo(rg) +
       '<div class="kpis">' +
       kpiTend(t.dm === null ? '—' : pct1(t.dm), 'Disponibilidad', t.dm, ta.dm, true) +
@@ -2734,7 +2757,7 @@
   function pmDe(e) {
     var mod = modeloDe(e), mt = busca('MANTENIMIENTOS', 'EquipoID', e.EquipoID);
     var porKm = (mod ? mod.UM : mt.UM) === 'KM' || (!e.TieneHorometro && e.TieneOdometro);
-    var actual = R.num(porKm ? e.UltimoOdometro : e.UltimoHorometro);
+    var le = lectEq(e, porKm), actual = le.v;
     var um = porKm ? 'km' : 'h';
     if (mod) { var p = R.proximoPM(mod.Intervalo, mod.SecuenciaPM, mt.LecturaUltimo, actual); if (p) { p.um = um; p.actual = actual; return p; } }
     if (R.num(mt.LecturaProxima) !== null) {
@@ -2747,7 +2770,7 @@
   }
   function chipPM(p) {
     if (p.estado === 'SIN_PLAN') return '<span class="estado">Sin plan</span>';
-    if (p.estado === 'SIN_LECTURA') return '<span class="estado">' + esc(p.pm) + ' · sin lectura</span>';
+    if (p.estado === 'SIN_LECTURA') return '<span class="estado">' + esc(p.pm) + ' a ' + n1(p.lectura) + ' ' + p.um + '</span>';
     var t = p.estado === 'VENCIDO' ? esc(p.pm) + ' vencido ' + n1(-p.faltan) + ' ' + p.um : esc(p.pm) + ' en ' + n1(p.faltan) + ' ' + p.um;
     return '<span class="estado ' + (p.estado === 'VENCIDO' ? 'peligro' : p.estado === 'PROXIMO' ? 'alerta' : 'ok') + '">' + t + '</span>';
   }
@@ -2844,7 +2867,7 @@
               return '<details class="historial-mas"' + (String(busq.mtto || '').trim() ? ' open' : '') + '><summary class="entre" style="padding:8px 0;border-bottom:1px solid var(--borde)"><span><strong>' + esc(a) + '</strong> <span class="mini">· ' + us.length + ' unidad(es)' + (mod ? ' · PM cada ' + n1(mod.Intervalo) + ' ' + (mod.UM === 'KM' ? 'km' : 'h') : ' · sin plan') + '</span></span>' + ic('right') + '</summary>' +
                 '<div class="uno-lista">' + us.map(function (e) {
                   var p = pmDe(e); if (p.estado === 'VENCIDO' || p.estado === 'PROXIMO') alertaT++;
-                  return '<a class="fila-dato" href="#/mec-equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;align-items:center"><span><strong>' + esc(e.CodigoInterno) + '</strong><br><span class="mini">' + esc(e.PlacaSerie || '') + ' · ' + (p.actual !== null ? n1(p.actual) + ' ' + p.um : 'sin lectura') + '</span></span>' + chipPM(p) + '</a>';
+                  return '<a class="fila-dato" href="#/mec-equipo/' + e.EquipoID + '" style="text-decoration:none;color:inherit;align-items:center"><span><strong>' + esc(e.CodigoInterno) + '</strong><br><span class="mini">' + esc(e.PlacaSerie || '') + ' · ' + esc(txtLect(e, p.um === 'km')) + '</span></span>' + chipPM(p) + '</a>';
                 }).join('') + '</div></details>';
             }).join('');
             return anios ? '<details class="historial-mas"' + (String(busq.mtto || '').trim() ? ' open' : '') + '><summary class="entre" style="padding:8px 0"><strong>' + esc(mo) + '</strong>' + ic('right') + '</summary><div style="padding-left:10px">' + anios + '</div></details>' : '';
@@ -2931,13 +2954,14 @@
       .sort(function (a, b) { return String(b.f).localeCompare(String(a.f)); });
     var usados = m.MOVIMIENTOS.filter(function (x) { return x.EquipoID === id && x.Estado === 'VIGENTE' && x.Signo < 0; }).sort(function (a, b) { return String(b.FechaHora).localeCompare(String(a.FechaHora)); });
     var h = '<div class="tarjeta uno-cabecera"><div class="icono-caja acento">' + ic('gauge') + '</div><div class="crece"><h3>' + esc(e.CodigoInterno) + ' · ' + esc(e.Familia) + '</h3>' +
-      '<div class="mini">' + esc([e.Marca, e.Modelo, e.Anio].filter(function (x) { return x; }).join(' ')) + ' · ' + esc(e.PlacaSerie || '') + ' · ' + (p.actual !== null ? n1(p.actual) + ' ' + p.um : 'sin lectura') + '</div></div></div>' +
+      '<div class="mini">' + esc([e.Marca, e.Modelo, e.Anio].filter(function (x) { return x; }).join(' ')) + ' · ' + esc(e.PlacaSerie || '') + '</div><div class="mini">Última lectura: <strong>' + esc(txtLecturas(e)) + '</strong>' +
+      (lectEq(e, p.um === 'km').fuente ? ' <span style="opacity:.75">(' + esc(lectEq(e, p.um === 'km').fuente) + ')</span>' : '') + '</div></div></div>' +
       '<div class="tarjeta" style="display:grid;gap:10px"><div class="entre"><h3>Próximo mantenimiento</h3>' + chipPM(p) + '</div>' +
       (p.lectura !== null ? '<p class="sub" style="margin:0">' + esc(p.pm) + ' a las ' + n1(p.lectura) + ' ' + p.um + (mod ? ' · plan: cada ' + n1(mod.Intervalo) + ' ' + p.um + ' (' + esc(mod.SecuenciaPM) + ')' : ' · según el plan importado del Excel') + '</p>'
         : '<p class="sub" style="margin:0">Este modelo aún no tiene plan.' + (esAdminRol() ? ' Créelo con "Ficha y plan".' : ' Pídale al administrador que lo cree.') + '</p>') +
       (puedeOperarMec() ? '<button type="button" class="btn primario ancho" data-a="mecHacerPM" data-k="' + id + '" data-v="' + esc(/^PM\d$/.test(p.pm) ? p.pm : pmsUnicos[0]) + '">' + ic('wrench') + 'Hacer mantenimiento' + (/^PM\d$/.test(p.pm) ? ' ' + esc(p.pm) : '') + '</button>' : '') +
       (esAdminRol() ? '<button type="button" class="btn chico" data-a="mecModelo" data-k="' + id + '">' + ic('edit') + 'Ficha y plan del modelo</button>' : '') + '</div>' +
-      '<div class="tarjeta"><h3>Ficha técnica</h3><p class="sub" style="white-space:pre-line">' + esc((mod && mod.FichaTecnica) || 'Sin ficha técnica.') + '</p></div>' +
+      tarjetaFicha(e, mod) +
       '<div class="etiqueta-seccion">Checklist por PM</div>' + (mod ? pmsUnicos.map(function (pm) {
         var lin = m.PLAN_PM_LINEAS.filter(function (l) { return l.ModeloKey === mod.ModeloKey && l.PM === pm; }).sort(function (a, b) { return a.Orden - b.Orden; });
         return '<details class="tarjeta"><summary class="entre" style="cursor:pointer;list-style:none"><h3>' + esc(pm) + ' <span class="mini">(' + lin.length + ' línea(s))</span></h3>' + ic('right') + '</summary><div class="uno-lista" style="margin-top:8px">' +
@@ -2955,6 +2979,64 @@
         return '<div class="fila-dato"><span>' + fFH(x.FechaHora) + ' · ' + esc(nomTipo(x.Tipo)) + '</span><span>' + esc(it.Codigo) + ' ' + n1(x.Cantidad) + ' ' + esc(it.Unidad || '') + '</span></div>';
       }).join('') : '<p class="mini">Aún no se usaron repuestos en este equipo.</p>') + '</div>';
     marco(e.CodigoInterno, h, { volver: '#/mecanica/mantenimientos' });
+  }
+
+  // ------------------------------------------------------------ ficha técnica en PDF (una por equipo)
+  function fichaDe(id) { return (cat().FICHAS || []).filter(function (f) { return f.EquipoID === id; })[0] || null; }
+  function tarjetaFicha(e, mod) {
+    var f = fichaDe(e.EquipoID);
+    return '<div class="tarjeta" style="display:grid;gap:10px"><h3>Ficha técnica</h3>' +
+      (f ? '<button type="button" class="btn primario ancho" data-a="fichaVer" data-k="' + e.EquipoID + '">' + ic('file') + 'Ver ficha técnica (PDF)</button>' +
+        '<p class="mini" style="margin:0">' + esc(f.NombreArchivo || 'ficha.pdf') + (f.TamanoKB ? ' · ' + n1(f.TamanoKB) + ' KB' : '') + (f.FechaSubida ? ' · subida el ' + fF(String(f.FechaSubida).substring(0, 10)) : '') + '</p>'
+        : '<p class="sub" style="margin:0">Aún no se subió el PDF de la ficha técnica de este equipo.' + (esAdminRol() ? '' : ' Pídaselo al administrador.') + '</p>') +
+      (esAdminRol() ? '<div class="acciones dos-col"><button type="button" class="btn chico" data-a="fichaSubir" data-k="' + e.EquipoID + '">' + ic('plus') + (f ? 'Cambiar PDF' : 'Subir PDF de la ficha') + '</button>' +
+        (f ? '<button type="button" class="btn chico fantasma" data-a="fichaQuitar" data-k="' + e.EquipoID + '">' + ic('trash') + 'Quitar PDF</button>' : '') + '</div>' : '') +
+      (mod && mod.FichaTecnica ? '<p class="sub" style="white-space:pre-line;margin:0">' + esc(mod.FichaTecnica) + '</p>' : '') + '</div>';
+  }
+  var pdfMemoria = {};
+  /** Abre el PDF: la ventana se abre en el mismo toque (si no, el celular la bloquea) y luego se llena. */
+  function verFicha(id) {
+    var f = fichaDe(id) || {};
+    var nombre = f.NombreArchivo || 'ficha.pdf';
+    var w = null;
+    try { w = window.open('', '_blank'); if (w) w.document.write('<p style="font:16px system-ui;padding:24px">Abriendo la ficha técnica…</p>'); } catch (x) { w = null; }
+    var mostrar = function (url) {
+      if (w && !w.closed) { w.location.href = url; return; }
+      var a = document.createElement('a'); a.href = url; a.download = nombre; a.target = '_blank'; document.body.appendChild(a); a.click(); a.remove();
+    };
+    if (pdfMemoria[id]) { mostrar(pdfMemoria[id]); return; }
+    if (!navigator.onLine) { if (w) w.close(); toast('Se necesita señal para abrir la ficha técnica.'); return; }
+    toast('Abriendo la ficha técnica…');
+    N.api('fichaEquipo', { op: 'ver', EquipoID: id }).then(function (r) {
+      var bin = atob(r.pdf), u = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      pdfMemoria[id] = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
+      mostrar(pdfMemoria[id]);
+    }, function (e) { if (w) w.close(); toast(e.message); });
+  }
+  function subirFicha(id) {
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'application/pdf,.pdf';
+    inp.style.position = 'fixed'; inp.style.left = '-9999px';
+    document.body.appendChild(inp);
+    inp.onchange = function () {
+      var a = inp.files && inp.files[0];
+      inp.remove();
+      if (!a) return;
+      if (!/pdf$/i.test(a.type) && !/\.pdf$/i.test(a.name)) { toast('Elija un archivo PDF.'); return; }
+      if (a.size > 10 * 1024 * 1024) { toast('El PDF pesa ' + n1(a.size / 1048576) + ' MB: el máximo es 10 MB. Comprímalo (ilovepdf.com › Comprimir) y vuelva a subirlo.'); return; }
+      if (!navigator.onLine) { toast('Se necesita señal para subir el PDF.'); return; }
+      var lector = new FileReader();
+      lector.onload = function () {
+        toast('Subiendo la ficha técnica (' + n1(a.size / 1024) + ' KB)…');
+        N.api('fichaEquipo', { op: 'subir', EquipoID: id, nombre: a.name, pdf: String(lector.result).split(',')[1] }).then(function (r) {
+          S().cat.FICHAS = r.fichas; delete pdfMemoria[id];
+          toast(r.mensaje); render(); N.sincronizar();
+        }, function (e) { toast(e.message); });
+      };
+      lector.readAsDataURL(a);
+    };
+    inp.click();
   }
 
   /** Checklist para cerrar un mantenimiento: tareas (check) y repuestos con cantidad editable. */
@@ -3385,7 +3467,7 @@
   function formMantto(eqID) {
     var e = equipo(eqID), m = busca('MANTENIMIENTOS', 'EquipoID', eqID);
     var km = m.UM ? String(m.UM).toUpperCase() === 'KM' : !e.TieneHorometro;
-    var actual = R.num(km ? e.UltimoOdometro : e.UltimoHorometro);
+    var actual = lectEq(e, km).v;
     var sel = function (name, vals, v) { return '<select name="' + name + '">' + vals.map(function (x) { return '<option value="' + x + '"' + (x === v ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>'; };
     var servicios = ['PM1', 'PM2', 'PM3', 'PM4', 'PMA'];
     hoja('Mantenimiento · ' + (e.CodigoInterno || ''),
@@ -3416,22 +3498,25 @@
     var orden = { 'VENCIDO': 0, 'POR VENCER': 1, 'SIN LECTURA': 2, 'OK': 3, 'SIN PLAN': 4 };
     var l = filas.filter(function (x) { return filtroPlan === 'TODOS' || x.estado === filtroPlan; })
       .sort(function (a, b) { return orden[a.estado] - orden[b.estado] || (a.restante || 0) - (b.restante || 0); });
-    var chipM = function (s) { return '<span class="estado ' + (s === 'VENCIDO' ? 'peligro' : s === 'POR VENCER' ? 'alerta' : s === 'OK' ? 'ok' : '') + '">' + esc(s) + '</span>'; };
+    // "SIN LECTURA" (ningún dato de horas/km en ningún registro) se muestra como "Sin dato"
+    var etqPlan = { TODOS: 'Todos', VENCIDO: 'Vencido', 'POR VENCER': 'Por vencer', OK: 'Al día', 'SIN LECTURA': 'Sin dato', 'SIN PLAN': 'Sin plan' };
+    var chipM = function (s) { return '<span class="estado ' + (s === 'VENCIDO' ? 'peligro' : s === 'POR VENCER' ? 'alerta' : s === 'OK' ? 'ok' : '') + '">' + esc(etqPlan[s] || s) + '</span>'; };
     marco('Plan de mantenimiento', pestanasMantto('plan') +
       '<div class="segmento" role="group" aria-label="Estado">' + ['TODOS', 'VENCIDO', 'POR VENCER', 'OK', 'SIN LECTURA', 'SIN PLAN'].map(function (s) {
         var n = s === 'TODOS' ? filas.length : filas.filter(function (x) { return x.estado === s; }).length;
-        return '<button type="button" data-a="filtroPlan" data-v="' + s + '" aria-pressed="' + (s === filtroPlan) + '">' + (s === 'TODOS' ? 'Todos' : s.charAt(0) + s.slice(1).toLowerCase()) + ' (' + n + ')</button>';
+        if (s === 'SIN LECTURA' && !n) return '';
+        return '<button type="button" data-a="filtroPlan" data-v="' + s + '" aria-pressed="' + (s === filtroPlan) + '">' + etqPlan[s] + ' (' + n + ')</button>';
       }).join('') + '</div>' +
       '<div class="lista">' + l.map(function (x) {
         var m = x.m || {};
         return '<div class="tarjeta"><div class="entre"><div><h3>' + esc(x.eq.CodigoInterno) + '</h3><div class="mini">' + esc(lineaDe(x.eq)) + ' · ' + esc(x.eq.Familia) + '</div>' +
           (x.m ? '<div class="mini num">Último: ' + esc(m.ServicioUltimo || '—') + (m.FechaUltimo ? ' el ' + fF(m.FechaUltimo) : '') + (m.LecturaUltimo !== '' ? ' a ' + n1(m.LecturaUltimo) : '') + '</div>' +
-            '<div class="mini num">Próximo: ' + esc(m.ServicioProximo || '—') + ' a ' + n1(x.prox) + ' ' + (x.um || '') + ' · actual ' + (x.actual === null || x.actual === undefined ? '—' : n1(x.actual)) +
+            '<div class="mini num">Próximo: ' + esc(m.ServicioProximo || '—') + ' a ' + n1(x.prox) + ' ' + (x.um || '') + ' · última lectura ' + esc(txtLect(x.eq, x.um === 'km' || String(m.UM || '').toUpperCase() === 'KM')) +
             (x.restante !== undefined ? ' · faltan <strong>' + n1(x.restante) + ' ' + x.um + '</strong>' : '') + '</div>' : '<div class="mini">Sin datos en el plan de mantenimiento.</div>') +
           '</div>' + chipM(x.estado) + '</div>' +
           '<button class="btn chico" style="margin-top:10px" data-a="mttoForm" data-k="' + x.eq.EquipoID + '">' + ic('wrench') + 'Registrar mantenimiento</button></div>';
       }).join('') + '</div>' +
-      '<p class="mini">"Por vencer" = le falta el 15 % del intervalo o menos (mínimo 25 h o 300 km). La lectura actual es la última que llegó en los partes diarios.</p>');
+      '<p class="mini">"Por vencer" = le falta el 15 % del intervalo o menos (mínimo 25 h o 300 km). La última lectura es la más reciente de partes diarios, abastecimientos, hojas de combustible, mantenimientos y el Excel KPI.</p>');
   }
 
   function formCerrarFalla(id) {
@@ -3821,6 +3906,15 @@
     admBajaEq: function (b) { formBaja('EQUIPO', b.dataset.k, equipo(b.dataset.k).CodigoInterno); },
     admSup: function (b) { formSupervisor(b.dataset.k || ''); },
     admBajaSup: function (b) { formBaja('SUPERVISOR', b.dataset.k, b.dataset.n); },
+    fichaVer: function (b) { verFicha(b.dataset.k); },
+    fichaSubir: function (b) { subirFicha(b.dataset.k); },
+    fichaQuitar: function (b) {
+      confirmar('Quitar la ficha técnica', 'Se quitará el PDF de la ficha técnica de este equipo. Puede volver a subirlo cuando quiera.', 'Quitar')
+        .then(function (si) {
+          if (!si) return;
+          N.api('fichaEquipo', { op: 'quitar', EquipoID: b.dataset.k }).then(function (r) { S().cat.FICHAS = r.fichas; delete pdfMemoria[b.dataset.k]; toast(r.mensaje); render(); }, function (e) { toast(e.message); });
+        });
+    },
     admSupGer: function (b) {
       confirmar('Pasar a Gerencia', b.dataset.n + ' dejará de ser supervisor: verá todos los partes, tableros, mecánica y combustible, pero no podrá aprobar ni cambiar nada. Entra con su mismo correo y contraseña.', 'Pasar a Gerencia')
         .then(function (si) { if (si) adminOp('supervisorAGerencia', { SupervisorID: b.dataset.k }); });
@@ -3939,7 +4033,7 @@
   // GERENCIA: solo lectura. Se quitan de la pantalla todos los botones que crean, editan, eliminan o aprueban
   // (el servidor además los rechaza). Solo quedan los de navegar, filtrar, ver fotos y descargar el Excel.
   var LECTURA_GERENCIA = ['volver', 'ir', 'sync', 'verFoto', 'mecCat', 'mecKardexTipo', 'filtro', 'dia', 'periodoMantto', 'rangoAplicar',
-    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar'];
+    'filtroUtil', 'lineaTablero', 'obraTablero', 'descargarExcel', 'filtroPlan', 'ojo', 'salir', 'descartar', 'fichaVer'];
   function soloLectura() {
     if (rol() !== 'GERENCIA') return;
     document.querySelectorAll('#app [data-a]').forEach(function (el) { if (LECTURA_GERENCIA.indexOf(el.dataset.a) < 0) el.remove(); });
