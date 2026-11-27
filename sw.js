@@ -1,7 +1,7 @@
 /* AXION · Service worker: guarda la app en el celular para abrirla sin señal.
  * Los datos NO pasan por aquí (van por la cola de nucleo.js). Cambie VERSION al publicar cambios.
  */
-var VERSION = 'axion-v61';   // al publicar, cambiar también VERSION_APP en app.js (debe ser igual)
+var VERSION = 'axion-v62';   // al publicar, cambiar también VERSION_APP en app.js (debe ser igual)
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'config.js', 'reglas.js', 'nucleo.js', 'camara.js', 'app.js',
   'manifest.webmanifest', 'icono-192.png', 'icono-512.png', 'fondo-movil.webp', 'fondo-movil.jpg', 'excavadora-720.webp',
   'combustible.html', 'comb/estilos.css', 'comb/analisis.js', 'comb/graficos.js', 'comb/app.js', 'comb/plantilla.html'];

@@ -114,10 +114,17 @@
       if (['#/fallas', '#/plan', '#/falla', '#/utilizacion', '#/equipos', '#/equipo', '#/reportes'].indexOf(actual) >= 0) actual = '#/mantto';
       if (actual === '#/mec-equipo' || actual === '#/mec-marca' || actual === '#/mec-modelo') actual = '#/mecanica';
       if (actual === '#/cumplimiento' && (r0 === 'ADMIN' || r0 === 'GERENCIA')) actual = '#/revisar';
+      var hashAhora = location.hash.split('?')[0];
       nav = '<nav class="nav" aria-label="Navegación principal"><div class="nav-in"><span class="nav-marca">AXION</span>' + items.map(function (it) {
         var act = actual === it[0] || (it[0] === '#/parte/nuevo' && actual === '#/parte');
+        // en la computadora, cada sección muestra sus subtemas debajo (un clic, sin buscar las pestañas a la derecha)
+        var subs = subtemasNav(it[0], r0);
         return '<a href="' + it[0] + '"' + (act ? ' aria-current="page"' : '') + '>' + ic(it[1]) + '<span>' + it[2] + '</span>' +
-          (it[3] ? '<span class="badge" aria-label="' + it[3] + ' avisos">' + it[3] + '</span>' : '') + '</a>';
+          (it[3] ? '<span class="badge" aria-label="' + it[3] + ' avisos">' + it[3] + '</span>' : '') + '</a>' +
+          (subs.length ? '<div class="nav-sub">' + subs.map(function (sb) {
+            var on = sb[2] ? sb[2].indexOf(hashAhora) >= 0 : hashAhora === sb[0];
+            return '<a href="' + sb[0] + '"' + (on ? ' class="activo"' : '') + '>' + esc(sb[1]) + '</a>';
+          }).join('') + '</div>' : '');
       }).join('') + '</div></nav>';
     }
     app.innerHTML = '<div class="app"><header class="cabecera">' +
@@ -128,6 +135,30 @@
       '<main class="contenido' + (op.tablero ? ' tablero' : '') + '" id="main">' + cuerpo + '</main>' + (op.pie || '') + '</div>' + nav;
     document.body.classList.toggle('con-nav', !op.sinNav);
     hidratarFotos();
+  }
+  /** Subtemas de cada sección del menú lateral: [ruta, texto, (rutas que también lo marcan)]. Solo se ven en la computadora. */
+  function subtemasNav(ruta, r0) {
+    if (ruta === '#/revisar' && (r0 === 'ADMIN' || r0 === 'GERENCIA')) return [['#/revisar', 'Por revisar'], ['#/cumplimiento', 'Cumplimiento'], ['#/combustible', 'Combustible']];
+    if (ruta === '#/mantto') return [['#/mantto', 'Resumen'], ['#/equipos', 'Equipos', ['#/equipos', '#/equipo']], ['#/utilizacion', 'Utilización'], ['#/fallas', 'Fallas', ['#/fallas', '#/falla']],
+      ['#/plan', 'Plan de mantto'], ['#/reportes', 'Reportes']];
+    if (ruta === '#/mecanica') {
+      var t = r0 === 'MECANICO' ? [['inventario', 'Inventario'], ['mantenimientos', 'Mantenimientos'], ['uso', 'Uso de stock']]
+        : [['tablero', 'Tablero'], ['inventario', 'Inventario'], ['mantenimientos', 'Mantenimientos']].concat(r0 === 'ADMIN' ? [['uso', 'Uso de stock']] : []).concat([['kardex', 'Kardex']]);
+      return t.map(function (x, i) {
+        var marca = ['#/mecanica/' + x[0]];
+        if (i === 0) marca.push('#/mecanica');
+        if (x[0] === 'mantenimientos') marca = marca.concat(subrutasMtto());
+        return ['#/mecanica/' + x[0], x[1], marca];
+      });
+    }
+    if (ruta === '#/admin') return [['operadores', 'Operadores'], ['equipos', 'Equipos'], ['supervisores', 'Supervisores'], ['otros', 'Gerencia, mecánicos y abastecedores'], ['obras', 'Obras']]
+      .map(function (x, i) { return ['#/admin/' + x[0], x[1], i === 0 ? ['#/admin/operadores', '#/admin'] : ['#/admin/' + x[0]]]; });
+    return [];
+  }
+  /** Las pantallas de marca, modelo y equipo de Mecánica cuentan como "Mantenimientos" en el menú. */
+  function subrutasMtto() {
+    var h = location.hash.split('?')[0];
+    return /^#\/mec-(marca|modelo|equipo)\//.test(h) ? [h] : [];
   }
   /** Fila de accesos rápidos con íconos redondos: [ruta o acción, ícono, texto]. Una ruta empieza con '#'. */
   function accesos(items) {
@@ -4314,7 +4345,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v61';
+  var VERSION_APP = 'axion-v62';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {

@@ -100,6 +100,8 @@ a { color: var(--acento); }
   border: 2px solid #161619; }
 
 .nav-marca { display: none; }
+/* subtemas del menú: solo en la computadora (en el celular siguen las pestañas de cada pantalla) */
+.nav-sub { display: none; }
 
 /* ---------- computadora: menú lateral y tableros a lo ancho (en el celular no cambia nada) */
 @media (min-width: 1024px) {
@@ -116,6 +118,12 @@ a { color: var(--acento); }
   .nav a[aria-current="page"] { transform: translateX(3px); }
   .nav a span:not(.badge) { margin: 0; }
   .nav .badge { position: static; margin-left: 4px; border: 0; }
+  .nav-in { overflow-y: auto; scrollbar-width: thin; }
+  .nav-sub { display: grid; gap: 1px; margin: 2px 0 8px 27px; padding-left: 12px; border-left: 1px solid var(--borde-2); }
+  .nav .nav-sub a { min-height: 32px; padding: 0 10px; font-size: 13px; font-weight: 500; border-radius: 10px; color: rgba(244, 241, 234, .55);
+    display: flex; align-items: center; transform: none; box-shadow: none; background: none; }
+  .nav .nav-sub a:hover { color: var(--texto); background: rgba(255, 255, 255, .05); }
+  .nav .nav-sub a.activo { color: var(--acento); background: var(--acento-suave); font-weight: 700; }
   .cabecera { padding: 24px 32px 12px; }
   .cabecera .titulo { font-size: 32px; }
   .contenido { padding: 6px 32px 32px; max-width: 1480px; }
