@@ -5,7 +5,7 @@
   var tmp = {};          // partes nuevos aún sin equipo elegido (no se envían todavía)
   var fotoMeta = null;   // a qué se asocia la próxima foto
   var filtroRevisar = 'POR_REVISAR';
-  var diaCumpl = null;
+  var diaCumpl = null, vistaCumpl = 'ENVIADO';  // Cumplimiento: qué lista se ve (ENVIADO | SIN | BORRADOR | TODOS)
 
   // ------------------------------------------------------------ utilidades
   var P = {
@@ -1790,10 +1790,15 @@
       (domingo ? '<div class="aviso">' + ic('calendar') + '<div>Domingo: solo hay turno día.</div></div>' : '') +
       barraBusq('cumpl', 'Buscar operador, equipo o línea (amarilla, blanca, transporte de personal)…') +
       (String(busq.cumpl || '').trim() && !filas.length ?'<div class="vacio">' + ic('alert') + '<p>No se encontró nada con esa búsqueda.</p></div>' : '') +
-      seccion('Sin parte', filas.filter(function (f) { return f.e === 'SIN'; })) +
-      seccion('Guardado pero no enviado', filas.filter(function (f) { return f.e === 'BORRADOR'; })) +
-      seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
-      seccion('Enviados · turno noche', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'NOCHE'; })) +
+      // botones para ver directo quién envió y quién no (sin bajar toda la lista)
+      '<div class="segmento envuelve" role="group" aria-label="Ver">' + [['ENVIADO', 'Enviaron'], ['SIN', 'Sin parte'], ['BORRADOR', 'Sin enviar'], ['TODOS', 'Todos']].map(function (x) {
+        return '<button type="button" data-a="vistaCumpl" data-v="' + x[0] + '" aria-pressed="' + (vistaCumpl === x[0]) + '">' + x[1] + ' (' + (x[0] === 'TODOS' ? filas.length : n(function (f) { return f.e === x[0]; })) + ')</button>';
+      }).join('') + '</div>' +
+      (vistaCumpl === 'ENVIADO' || vistaCumpl === 'TODOS' ? seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
+        seccion('Enviados · turno noche', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'NOCHE'; })) : '') +
+      (vistaCumpl === 'SIN' || vistaCumpl === 'TODOS' ? seccion('Sin parte', filas.filter(function (f) { return f.e === 'SIN'; })) : '') +
+      (vistaCumpl === 'BORRADOR' || vistaCumpl === 'TODOS' ? seccion('Guardado pero no enviado', filas.filter(function (f) { return f.e === 'BORRADOR'; })) : '') +
+      (filas.length && !n(function (f) { return vistaCumpl === 'TODOS' || f.e === vistaCumpl; }) ? '<div class="vacio">' + ic('checkc') + '<p>Nadie en esta lista.</p></div>' : '') +
       (todas.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>No hay operadores registrados.</p></div>'));
   }
 
@@ -4244,6 +4249,7 @@
     admOtroAlta: function (b) { adminOp('bajaUsuarioRol', { UsuarioID: b.dataset.k, Activar: true }); },
     filtro: function (b) { filtroRevisar = b.dataset.v; render(); },
     dia: function (b) { diaCumpl = b.dataset.v; render(); },
+    vistaCumpl: function (b) { vistaCumpl = b.dataset.v; render(); },
     iniTurno: function (b) { selInicio({ turno: b.dataset.v }); render(); },
     fallaAdmin: function (b) { formFallaAdmin(b.dataset.k || ''); },
     mttoForm: function (b) { formMantto(b.dataset.k); },
@@ -4519,7 +4525,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v75';
+  var VERSION_APP = 'axion-v76';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
