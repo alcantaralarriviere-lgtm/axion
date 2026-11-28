@@ -274,8 +274,8 @@ var Nucleo = (function () {
     var t0 = Date.now();
     ia[evId] = { estado: 'leyendo', t: t0 };
     avisar();
-    var listo = function (l) { delete ia[evId]; aplicarServidor('LECTURAS_IA', l); avisar(); };
-    return api('leerFoto', { EvidenciaID: evId, repetir: !!repetir }).then(function (r) { listo(r.lectura); }, function (e) {
+    var listo = function (l, parte) { delete ia[evId]; aplicarServidor('LECTURAS_IA', l); parteDelServidor(parte); avisar(); };
+    return api('leerFoto', { EvidenciaID: evId, repetir: !!repetir }).then(function (r) { listo(r.lectura, r.parte); }, function (e) {
       // Google suele perder la RESPUESTA aunque la IA ya terminó (o la foto ya se está leyendo):
       // en vez de mostrar error, se pregunta al servidor cada pocos segundos por lo leído
       if (e.codigo === 'OCUPADO' || e.codigo === 'RED' || e.codigo === 'LEYENDO') return esperarIA(evId, t0, listo);
@@ -292,7 +292,7 @@ var Nucleo = (function () {
         if (!S || !S.token) return;
         return api('estadoIA', { EvidenciaID: evId }).then(function (r) {
           var l = r.lectura;
-          if (l && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA')) return listo(l);
+          if (l && (l.Estado === 'PROCESADA' || l.Estado === 'CONFIRMADA')) return listo(l, r.parte);
           if (l && l.Estado === 'ERROR' && !r.leyendo && Date.parse(l.FechaHoraServidor) >= t0 - 60000) {
             aplicarServidor('LECTURAS_IA', l);
             ia[evId] = { estado: 'error', msg: l.Error || 'La IA no pudo leer la foto.', codigo: 'IA_ERROR', t: Date.now() };
@@ -331,6 +331,18 @@ var Nucleo = (function () {
     S.t[tabla][f[clave]] = Object.assign({}, quedan ? S.t[tabla][f[clave]] : {}, f, { _srv: true, _pend: quedan });
   }
 
+  /**
+   * El parte como quedó en el servidor tras leer la foto (con las lecturas que completó la IA). Solo si el celular
+   * no tiene cambios propios del parte sin enviar (esos mandan) y si la copia del servidor es igual o más nueva.
+   */
+  function parteDelServidor(p) {
+    if (!p || !p.ParteID) return;
+    if (S.outbox.some(function (it) { return it.ref === p.ParteID || (it.fila && it.fila.ParteID === p.ParteID && it.op === 'accion'); })) return;
+    var local = S.t.PARTES_DIARIOS[p.ParteID];
+    if (local && Number(local.Version || 0) > Number(p.Version || 0)) return;
+    aplicarServidor('PARTES_DIARIOS', p);
+  }
+
   function rechazar(it, err) {
     S.rechazados.unshift({ item: it, error: err.message, codigo: err.codigo, fecha: Date.now() });
     S.rechazados = S.rechazados.slice(0, 50);
@@ -363,7 +375,7 @@ var Nucleo = (function () {
         S.outbox = S.outbox.filter(function (x) { return x !== f; });
         aplicarServidor('EVIDENCIAS', r.fila);
         var evId = r.fila.EvidenciaID;
-        if (r.lectura) { delete ia[evId]; aplicarServidor('LECTURAS_IA', r.lectura); }
+        if (r.lectura) { delete ia[evId]; aplicarServidor('LECTURAS_IA', r.lectura); parteDelServidor(r.parte); }
         else if (iaLista() && IA_TIPOS.indexOf(r.fila.TipoEvidencia) >= 0) { delete ia[evId]; leerIA(evId); }  // en paralelo, no frena la cola
       }, function (e) {
         f.enviando = false;
