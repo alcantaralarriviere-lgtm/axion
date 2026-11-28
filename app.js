@@ -1733,8 +1733,23 @@
       var mios = partes.filter(function (p) { return p.OperadorID === o.OperadorID; });
       var env = mios.filter(function (p) { return SIN_ENVIAR.indexOf(p.Estado) < 0; });
       var p = env[0] || mios[0] || null;
-      return { o: o, p: p, todos: env.length ? env : mios, e: env.length ? 'ENVIADO' : p ? 'BORRADOR' : 'SIN' };
+      // equipos del operador ese día (los de sus partes; si no hizo parte, los que tiene asignados): para buscar por línea y familia
+      var eqIds = mios.map(function (x) { return x.EquipoID; });
+      if (!eqIds.length) eqIds = (cat().ASIGNACIONES || []).filter(function (a) {
+        return a.OperadorID === o.OperadorID && a.FechaInicio <= diaCumpl && (!a.FechaFin || a.FechaFin >= diaCumpl) && (!a.Estado || a.Estado === 'ACTIVO' || a.FechaFin);
+      }).map(function (a) { return a.EquipoID; });
+      var lineas = eqIds.map(function (id) {
+        var eq = equipo(id), l = lineaDe(eq);
+        return [l, l === 'LINEA AMARILLA' ? 'amarilla' : l === 'LINEA BLANCA' ? 'blanca' : '', eq.Familia || '', eq.CodigoInterno || ''].join(' ');
+      }).join(' ');
+      return { o: o, p: p, todos: env.length ? env : mios, e: env.length ? 'ENVIADO' : p ? 'BORRADOR' : 'SIN', lineas: lineas };
     });
+    var pasa = function (f) {
+      return coincide('cumpl', [f.o.Nombre, f.o.Telefono, f.lineas, f.e === 'SIN' ? 'sin parte' : f.e === 'BORRADOR' ? 'sin enviar borrador' : 'enviado'].concat(f.todos.map(textoParte)).join(' '));
+    };
+    // con búsqueda (p. ej. "línea amarilla" o "transporte de personal"), los indicadores son solo de lo encontrado
+    var todas = filas;
+    filas = filas.filter(pasa);
     var n = function (f) { return filas.filter(f).length; };
     var env = n(function (f) { return f.e === 'ENVIADO'; });
     var dia = n(function (f) { return f.e === 'ENVIADO' && f.todos.some(function (p) { return p.Turno === 'DIA'; }); });
@@ -1761,9 +1776,6 @@
       return '<div class="tarjeta">' + inner + wa + '</div>';
     };
     var orden = function (a, b) { return String(a.o.Nombre).localeCompare(String(b.o.Nombre)); };
-    var pasa = function (f) {
-      return coincide('cumpl', [f.o.Nombre, f.o.Telefono, f.e === 'SIN' ? 'sin parte' : f.e === 'BORRADOR' ? 'sin enviar borrador' : 'enviado'].concat(f.todos.map(textoParte)).join(' '));
-    };
     var seccion = function (titulo, l) { l = l.filter(pasa); return l.length ? '<div class="etiqueta-seccion">' + titulo + ' (' + l.length + ')</div><div class="lista">' + l.sort(orden).map(tarjeta).join('') + '</div>' : ''; };
     var domingo = new Date(diaCumpl + 'T12:00:00Z').getUTCDay() === 0;
     marco('Cumplimiento', '<div class="pasos">' + fechas.map(function (f) {
@@ -1776,13 +1788,13 @@
       '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'BORRADOR'; }) + '</div><div class="l">Guardados sin enviar</div></div>' +
       '<div class="kpi"><div class="v num">' + n(function (f) { return f.e === 'SIN'; }) + '</div><div class="l">Sin parte</div></div></div>' +
       (domingo ? '<div class="aviso">' + ic('calendar') + '<div>Domingo: solo hay turno día.</div></div>' : '') +
-      barraBusq('cumpl', 'Buscar operador o equipo…') +
-      (String(busq.cumpl || '').trim() && !filas.some(pasa) ? '<div class="vacio">' + ic('alert') + '<p>No se encontró nada con esa búsqueda.</p></div>' : '') +
+      barraBusq('cumpl', 'Buscar operador, equipo o línea (amarilla, blanca, transporte de personal)…') +
+      (String(busq.cumpl || '').trim() && !filas.length ?'<div class="vacio">' + ic('alert') + '<p>No se encontró nada con esa búsqueda.</p></div>' : '') +
       seccion('Sin parte', filas.filter(function (f) { return f.e === 'SIN'; })) +
       seccion('Guardado pero no enviado', filas.filter(function (f) { return f.e === 'BORRADOR'; })) +
       seccion('Enviados · turno día', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'DIA'; })) +
       seccion('Enviados · turno noche', filas.filter(function (f) { return f.e === 'ENVIADO' && f.p.Turno === 'NOCHE'; })) +
-      (filas.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>No hay operadores registrados.</p></div>'));
+      (todas.length ? '' : '<div class="vacio">' + ic('calendar') + '<p>No hay operadores registrados.</p></div>'));
   }
 
   /** Mensaje de WhatsApp listo para el operador que no envió su parte (mismo texto que el correo de las 19:30/07:30). */
@@ -4507,7 +4519,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v74';
+  var VERSION_APP = 'axion-v75';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
