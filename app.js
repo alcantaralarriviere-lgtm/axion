@@ -625,8 +625,11 @@
   var PASO = {
     1: function (p) {
       var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
-      var bloq = !!p.Estado && p.Estado !== 'BORRADOR';
+      // un parte OBSERVADO se corrige completo: también fecha, turno y equipo (si el supervisor lo observó por eso)
+      var bloq = !!p.Estado && p.Estado !== 'BORRADOR' && p.Estado !== 'OBSERVADO';
+      if (p.Estado === 'OBSERVADO') min = R.sumarDias(p.FechaTrabajo < min ? p.FechaTrabajo : min, -7);
       return '<div class="tarjeta"><dl class="datos-def"><dt>Operador</dt><dd>' + esc(perfil().Nombre) + '</dd><dt>Correo</dt><dd>' + esc(perfil().Email) + '</dd></dl></div>' +
+        (p.Estado === 'OBSERVADO' ? '<div class="aviso acento">' + ic('alert') + '<div><strong>Observación del supervisor</strong><div>' + esc(p.Observaciones) + '</div><div class="sub">Puede corregir la fecha, el turno y el equipo.</div></div></div>' : '') +
         '<label class="campo"><span>Fecha de trabajo <span class="req">*</span></span><input name="FechaTrabajo" type="date" min="' + min + '" max="' + hoy() + '" value="' + esc(p.FechaTrabajo) + '"' + (bloq ? ' disabled' : '') + '>' +
         '<span class="ayuda">Es el día en que EMPEZÓ el turno. El turno noche del 12 termina el 13, pero su fecha es el 12.</span></label>' +
         '<div class="campo"><span>Turno <span class="req">*</span></span><div class="segmento" role="group" aria-label="Turno">' +
@@ -640,7 +643,7 @@
       if (!asig.length) return '<div class="aviso peligro">' + ic('alert') + '<div><strong>No tiene equipos autorizados para el turno ' + esc(p.Turno) + ' del ' + fF(p.FechaTrabajo) + '.</strong><div class="sub">Revise el turno en el paso 1 o avise a su supervisor.</div></div></div>';
       if (asig.length === 1 && !p.AsignacionID) { p.AsignacionID = asig[0].AsignacionID; p.FrenteID = p.FrenteID || asig[0].FrenteID; }
       var a = busca('ASIGNACIONES', 'AsignacionID', p.AsignacionID);
-      var bloq = !!p.Estado && p.Estado !== 'BORRADOR';
+      var bloq = !!p.Estado && p.Estado !== 'BORRADOR' && p.Estado !== 'OBSERVADO';
       return '<div class="campo" role="radiogroup" aria-label="Equipo autorizado"><span>Equipo autorizado <span class="req">*</span></span>' + asig.map(function (x) {
         var eq = equipo(x.EquipoID);
         return '<label class="opcion" aria-checked="' + (x.AsignacionID === p.AsignacionID) + '"><input type="radio" name="AsignacionID" value="' + x.AsignacionID + '"' + (x.AsignacionID === p.AsignacionID ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
@@ -977,6 +980,7 @@
       var v = valoresForm();
       if (!v.FechaTrabajo) return 'Indique la fecha de trabajo.';
       var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
+      if (p.Estado === 'OBSERVADO') min = R.sumarDias(p.FechaTrabajo < min ? p.FechaTrabajo : min, -7);  // corrección de un parte observado
       if ((v.FechaTrabajo !== p.FechaTrabajo || !p.Estado) && (v.FechaTrabajo > hoy() || v.FechaTrabajo < min)) return 'Fecha fuera del rango permitido (' + fF(min) + ' a ' + fF(hoy()) + ').';
       if (!v.AsignacionID) return 'Elija el equipo autorizado.';
       var a = busca('ASIGNACIONES', 'AsignacionID', v.AsignacionID);
@@ -1047,7 +1051,8 @@
     if (paso === 1) {
       if (!v.FechaTrabajo) return 'Indique la fecha de trabajo.';
       var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
-      if (!p.Estado && (v.FechaTrabajo > hoy() || v.FechaTrabajo < min)) return 'Fecha fuera del rango permitido (' + fF(min) + ' a ' + fF(hoy()) + ').';
+      if (p.Estado === 'OBSERVADO') min = R.sumarDias(p.FechaTrabajo < min ? p.FechaTrabajo : min, -7);
+      if ((!p.Estado || (p.Estado === 'OBSERVADO' && v.FechaTrabajo !== p.FechaTrabajo)) && (v.FechaTrabajo > hoy() || v.FechaTrabajo < min)) return 'Fecha fuera del rango permitido (' + fF(min) + ' a ' + fF(hoy()) + ').';
       if (v.FechaTrabajo !== p.FechaTrabajo || v.Turno !== p.Turno) { p.AsignacionID = ''; }
       p.FechaTrabajo = v.FechaTrabajo || p.FechaTrabajo; p.Turno = v.Turno;
     }
@@ -4525,7 +4530,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v76';
+  var VERSION_APP = 'axion-v77';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
