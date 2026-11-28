@@ -69,6 +69,16 @@
     if (N.estado().outbox.some(function (it) { return it.op === 'accion' && it.fila.ParteID === p.ParteID; })) return false;
     return !p.Estado || p.Estado === 'BORRADOR' || (p.Estado === 'OBSERVADO' && perfil().PuedeCorregir);
   }
+  /**
+   * ¿Puede registrar lo que leyó la IA del parte de papel? El operador en su parte editable, y el administrador en el
+   * borrador (u observado) de cualquier operador: lo registra en su nombre, como "Enviar por el operador".
+   */
+  function editableIA(p) {
+    if (editable(p)) return true;
+    if (!p || rol() !== 'ADMIN' || !p.OperadorID) return false;
+    if (N.estado().outbox.some(function (it) { return it.op === 'accion' && it.fila.ParteID === p.ParteID; })) return false;
+    return !p.Estado || p.Estado === 'BORRADOR' || p.Estado === 'OBSERVADO';
+  }
   /** Un borrador propio que nunca se envió se puede eliminar (p. ej., si eligió el equipo equivocado). */
   function borrable(p) { return editable(p) && (p.Estado || 'BORRADOR') === 'BORRADOR' && !p.FechaRecepcionServidor; }
   function botonBorrarParte(p) {
@@ -1448,7 +1458,7 @@
     var p = getParte(id);
     if (!p) { location.replace('#/inicio'); return; }
     var eq = equipo(p.EquipoID);
-    var puede = editable(p);
+    var puede = editableIA(p), propio = editable(p);
     var evs = N.hijos('EVIDENCIAS', id).filter(function (e) { return e.TipoEvidencia === 'PARTE_FISICO_FIRMADO' && !e._error; });
     var ev = evs[evs.length - 1];
     var l = ultimaLecturaParte(id);
@@ -1516,7 +1526,7 @@
         '<button type="button" class="btn ancho" data-a="iaRepetir" data-ev="' + l.EvidenciaID + '">' + ic('refresh') + 'Volver a leer la foto</button>' +
         '<p class="mini">Lo que no marque no se registra. Revise las actividades y lecturas en sus pasos antes de enviar.</p>';
     }
-    marco('Parte de papel con IA', '<form id="fIA" novalidate style="display:grid;gap:16px">' + h + '</form>', { volver: puede ? (modo() === 'detallado' ? '#/parte/' + id + '/paso/4' : '#/parte/' + id + '/rapido/3') : '#/parte/' + id });
+    marco('Parte de papel con IA', '<form id="fIA" novalidate style="display:grid;gap:16px">' + h + '</form>', { volver: propio ? (modo() === 'detallado' ? '#/parte/' + id + '/paso/4' : '#/parte/' + id + '/rapido/3') : '#/parte/' + id });
     var f = document.getElementById('fIA');
     f.onchange = function (e) { if (e.target.name) iaSel[e.target.name] = e.target.checked; };
     hidratarFotos();
@@ -3964,7 +3974,7 @@
       var l = N.fila('LECTURAS_IA', lecturaID);
       var r = R.resultadoIA(l);
       var p = Object.assign({}, getParte(id));
-      if (!r || !editable(p)) return null;
+      if (!r || !editableIA(p)) return null;
       var ap = { lecturas: {}, actividades: [], viajes: [], observaciones: false, omitidos: [], auto: !!auto };
       if (auto && corregirDesdePapel(p, r)) { ap.fechaTurno = p.FechaTrabajo + ' ' + p.Turno; p._porIA = true; }
       ['HorometroInicial', 'HorometroFinal', 'OdometroInicial', 'OdometroFinal'].forEach(function (k) {
@@ -4127,6 +4137,8 @@
       iaSel = {};
       toast(resumenAplicado(ap));
       var id = b.dataset.id;
+      // el administrador (en nombre del operador) vuelve al detalle del parte, donde ya ve las lecturas y puede enviarlo
+      if (!editable(getParte(id))) { location.hash = '#/parte/' + id; return; }
       location.hash = modo() === 'uno' ? '#/parte/' + id + '/uno' : modo() === 'detallado' ? '#/parte/' + id + '/paso/' + (Object.keys(ap.lecturas).length ? 3 : 4) : '#/parte/' + id + '/rapido/' + (Object.keys(ap.lecturas).length ? 2 : 3);
     },
     borrarParte: function (b) {
@@ -4495,7 +4507,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v72';
+  var VERSION_APP = 'axion-v73';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
