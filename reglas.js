@@ -176,6 +176,23 @@ var Reglas = (function () {
     return isNaN(Date.parse(f + 'T12:00:00Z')) ? v : f;
   }
   /**
+   * Turno del parte de papel SOLO si está escrito: "D", "Día", "Turno dia", "N", "Noche" o el horario ("07:00 - 18:00").
+   * Si el casillero está vacío la IA a veces lo deduce (y se equivoca): sin nada escrito devuelve null y no se compara.
+   */
+  function turnoIA(campo) {
+    if (!campo) return null;
+    // lectura sin el campo "texto" (formato antiguo): vale solo si la IA lo leyó sin duda
+    if (campo.texto === undefined) { var v0 = String(campo.valor || '').toUpperCase(); return campo.confianza === 'ALTA' && (v0 === 'DIA' || v0 === 'NOCHE') ? v0 : null; }
+    var tx = String(campo.texto === null ? '' : campo.texto).trim().toUpperCase()
+      .replace(/[ÍÌ]/g, 'I').replace(/[ÉÈ]/g, 'E');
+    if (!tx) return null;
+    if (/NOCHE|NOCH|(^|[^A-Z])N([^A-Z]|$)/.test(tx)) return 'NOCHE';
+    if (/DIA|DIO|(^|[^A-Z])D([^A-Z]|$)/.test(tx)) return 'DIA';
+    var h = tx.match(/(\d{1,2})\s*[:.h]\s*\d{0,2}/);
+    if (h) { var n = Number(h[1]); if (n >= 5 && n <= 15) return 'DIA'; if (n <= 23) return 'NOCHE'; }
+    return null;
+  }
+  /**
    * Fecha del papel corregida por sentido común frente a la fecha del parte digital.
    * El año suele escribirse con 2 cifras o borroso y la IA lo lee mal ("26/11/20" → 2020): si el día y el mes calzan
    * con un año cercano (el del parte, el anterior o el siguiente) a menos de 45 días, se usa ese año. Si aun así queda
@@ -254,7 +271,7 @@ var Reglas = (function () {
       if (fe0 && !fe) add('Fecha', 'DUDOSO', 'La fecha leída en el papel (' + fe0 + ') no es creíble: revise la fecha a mano.');
       else if (fe && fe !== p.FechaTrabajo) add('Fecha', 'INCONSISTENTE', 'El parte de papel tiene fecha ' + fe + ' y el parte digital ' + p.FechaTrabajo + '.');
       else if (!fe) add('Fecha', estadoDe(papel.fecha), 'No se pudo confirmar la fecha en el parte de papel.');
-      var tu = valorIA(papel.turno);
+      var tu = turnoIA(papel.turno);
       if (tu && tu !== p.Turno) add('Turno', 'INCONSISTENTE', 'El parte de papel indica turno ' + tu + ' y el parte digital ' + p.Turno + '.');
       var op = valorIA(papel.operador);
       if (op && operadorNombre) {
@@ -402,7 +419,7 @@ var Reglas = (function () {
     relInicio: relInicio, relFin: relFin, duracion: duracion, claveUnica: claveUnica,
     codigoParte: codigoParte, limite: limite, proponer: proponer, lecturas: lecturas,
     alertasActividades: alertasActividades, fotosFaltantes: fotosFaltantes, revisarEnvio: revisarEnvio,
-    valorIA: valorIA, fechaIA: fechaIA, fechaPapelCreible: fechaPapelCreible, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
+    valorIA: valorIA, fechaIA: fechaIA, turnoIA: turnoIA, fechaPapelCreible: fechaPapelCreible, resultadoIA: resultadoIA, contrastarIA: contrastarIA, actividadDesdeIA: actividadDesdeIA,
     estadoCumplimiento: estadoCumplimiento, accionesPermitidas: accionesPermitidas,
     ESTADO_DESTINO: ESTADO_DESTINO, REQUIERE_COMENTARIO: REQUIERE_COMENTARIO };
 })();

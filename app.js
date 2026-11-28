@@ -1007,7 +1007,7 @@
     if (!p || p.Estado === 'APROBADO' || p.Estado === 'ANULADO') return '';
     var l = ultimaLecturaParte(p.ParteID), r = l ? R.resultadoIA(l) : null;
     if (!r) return '';
-    var f = R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo), t = String(R.valorIA(r.turno) || '').toUpperCase();
+    var f = R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo), t = R.turnoIA(r.turno) || '';  // solo si el turno está escrito en el papel
     f = /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : p.FechaTrabajo;
     t = t === 'DIA' || t === 'NOCHE' ? t : p.Turno;
     return f !== p.FechaTrabajo || t !== p.Turno ? fF(f) + ' ' + t : '';
@@ -1397,7 +1397,7 @@
   /** Si el papel dice otra fecha o turno, manda el papel (solo en borradores y si no choca con otro parte). */
   function corregirDesdePapel(p, r) {
     if (p.Estado !== 'BORRADOR') return false;
-    var f = R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo), tu = String(R.valorIA(r.turno) || '').toUpperCase();
+    var f = R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo), tu = R.turnoIA(r.turno) || '';  // solo si el turno está escrito en el papel
     var min = R.sumarDias(hoy(), -Number(cfg().DIAS_MAX_RETRASO_REGISTRO || 2));
     var fecha = /^\d{4}-\d{2}-\d{2}$/.test(f || '') && f <= hoy() && f >= min ? f : p.FechaTrabajo;
     var tno = tu === 'DIA' || tu === 'NOCHE' ? tu : p.Turno;
@@ -1478,7 +1478,7 @@
       };
       h += listaHallazgos(hallazgosIA(p));
       h += '<div class="etiqueta-seccion">Datos generales</div><div class="tarjeta"><table class="ia-tabla">' +
-        fila('Fecha', r.fecha ? Object.assign({}, r.fecha, { valor: R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo) || R.fechaIA(r.fecha) }) : r.fecha, fF(p.FechaTrabajo)) + fila('Turno', r.turno, p.Turno) + fila('Equipo', r.codigo_equipo, eq.CodigoInterno) + fila('Operador', r.operador, nombreOp(p.OperadorID)) + '</table></div>';
+        fila('Fecha', r.fecha ? Object.assign({}, r.fecha, { valor: R.fechaPapelCreible(R.fechaIA(r.fecha), p.FechaTrabajo) || R.fechaIA(r.fecha) }) : r.fecha, fF(p.FechaTrabajo)) + fila('Turno', r.turno ? Object.assign({}, r.turno, R.turnoIA(r.turno) ? { valor: R.turnoIA(r.turno) } : { valor: 'No escrito en el papel', confianza: 'ILEGIBLE' }) : r.turno, p.Turno) + fila('Equipo', r.codigo_equipo, eq.CodigoInterno) + fila('Operador', r.operador, nombreOp(p.OperadorID)) + '</table></div>';
       var lect = [];
       if (eq.TieneHorometro) lect.push(['HorometroInicial', 'horometro_inicial', 'Horómetro inicial'], ['HorometroFinal', 'horometro_final', 'Horómetro final']);
       if (eq.TieneOdometro) lect.push(['OdometroInicial', 'odometro_inicial', 'Odómetro inicial'], ['OdometroFinal', 'odometro_final', 'Odómetro final']);
@@ -4507,7 +4507,7 @@
    * Seguro extra: si la versión publicada (sw.js) no es la de este app.js, el navegador se quedó con una copia vieja
    * (pasa en algunos navegadores de PC que no actualizan el service worker). Se borra la copia y se recarga UNA vez.
    */
-  var VERSION_APP = 'axion-v73';
+  var VERSION_APP = 'axion-v74';
   function revisarVersion() {
     if (!navigator.onLine || !window.fetch) return;
     fetch('sw.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
